@@ -156,7 +156,7 @@ jobs:
           NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${{ secrets.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY }}
           NEXT_PUBLIC_API_URL: ${{ vars.NEXT_PUBLIC_API_URL || secrets.NEXT_PUBLIC_API_URL }}
         run: |
-          export NEXT_PUBLIC_ASSET_PREFIX="https://storage.googleapis.com/${GCS_FRONTEND_BUCKET}"
+          export NEXT_PUBLIC_ASSET_PREFIX="https://${GCS_FRONTEND_BUCKET}.storage.googleapis.com"
           npm ci
           npm run build
 
@@ -165,7 +165,7 @@ jobs:
         if: steps.check.outputs.skipped == 'false'
         run: |
           gsutil -m rsync -r -d frontend/out "gs://${GCS_FRONTEND_BUCKET}/"
-          URL="https://storage.googleapis.com/${GCS_FRONTEND_BUCKET}/index.html"
+          URL="https://${GCS_FRONTEND_BUCKET}.storage.googleapis.com/index.html"
           echo "frontend_url=$URL" >> "$GITHUB_OUTPUT"
           echo "Frontend URL: $URL"
 

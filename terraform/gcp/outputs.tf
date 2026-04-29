@@ -27,7 +27,7 @@ output "frontend_bucket_name" {
 
 output "frontend_public_url" {
   description = "Direct HTTPS URL to the exported site (demo)"
-  value       = var.create_frontend_bucket ? "https://storage.googleapis.com/${google_storage_bucket.frontend[0].name}/index.html" : null
+  value       = var.create_frontend_bucket ? "https://${google_storage_bucket.frontend[0].name}.storage.googleapis.com/index.html" : null
 }
 
 output "cloud_run_researcher_service" {
