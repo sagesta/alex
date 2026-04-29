@@ -14,6 +14,17 @@ locals {
   lb_https_enabled = local.lb_enabled && var.load_balancer_domain != ""
 }
 
+# Variable validation cannot reference other variables; use check (Terraform >= 1.5, matches required_version).
+check "load_balancer_prerequisites" {
+  assert {
+    condition = (
+      !var.create_load_balancer ||
+      (var.create_frontend_bucket && var.cloud_run_api_service_name != "")
+    )
+    error_message = "When create_load_balancer is true, create_frontend_bucket must be true and cloud_run_api_service_name must be set (deploy backend/api to Cloud Run in var.region first)."
+  }
+}
+
 resource "google_compute_global_address" "lb" {
   count   = local.lb_enabled ? 1 : 0
   name    = "${var.app_name}-lb-ip"

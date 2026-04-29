@@ -49,14 +49,6 @@ variable "create_load_balancer" {
   type        = bool
   description = "Create a global HTTP(S) load balancer: GCS → default, /api/* → Cloud Run portfolio API (see cloud_run_api_service_name)"
   default     = false
-
-  validation {
-    condition = (
-      !var.create_load_balancer ||
-      (var.create_frontend_bucket && var.cloud_run_api_service_name != "")
-    )
-    error_message = "When create_load_balancer is true, create_frontend_bucket must be true and cloud_run_api_service_name must be set (deploy backend/api to Cloud Run in var.region first)."
-  }
 }
 
 variable "cloud_run_api_service_name" {
