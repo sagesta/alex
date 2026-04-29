@@ -63,11 +63,15 @@ jobs:
         uses: docker/setup-buildx-action@v3
 
       - name: Build and push
-        working-directory: ${{ matrix.context }}
+        working-directory: ${{ github.workspace }}
         env:
           IMAGE_BASE: ${{ env.ARTIFACT_REGISTRY_URL }}/${{ matrix.service }}
         run: |
-          docker build --platform linux/amd64 -t "${IMAGE_BASE}:${{ steps.tag.outputs.tag }}" -t "${IMAGE_BASE}:latest" .
+          docker build --platform linux/amd64 \
+            -f "${{ matrix.context }}/Dockerfile" \
+            -t "${IMAGE_BASE}:${{ steps.tag.outputs.tag }}" \
+            -t "${IMAGE_BASE}:latest" \
+            .
           docker push "${IMAGE_BASE}:${{ steps.tag.outputs.tag }}"
           docker push "${IMAGE_BASE}:latest"
 
@@ -105,7 +109,10 @@ jobs:
             --project "$GCP_PROJECT" \
             --platform managed \
             --allow-unauthenticated \
-            --port 8000 \
+            --port 8080 \
+            --memory 1Gi \
+            --cpu 1 \
+            --timeout 300 \
             --quiet
           URL=$(gcloud run services describe "$CLOUD_RUN_SERVICE" --region "$GCP_REGION" --project "$GCP_PROJECT" --format 'value(status.url)')
           echo "service_url=$URL" >> "$GITHUB_OUTPUT"
