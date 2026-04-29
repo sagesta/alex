@@ -55,6 +55,10 @@ cors_origin_regex = os.getenv(
     "CORS_ORIGIN_REGEX",
     r"https://(storage\.googleapis\.com|[a-z0-9][-a-z0-9_.]*\.(storage\.googleapis\.com|run\.app))",
 )
+
+logger.info(f"CORS allow_origins: {cors_origins}")
+logger.info(f"CORS allow_origin_regex: {cors_origin_regex}")
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=cors_origins,
@@ -139,16 +143,31 @@ async def general_exception_handler(request: Request, exc: Exception):
     )
 
 # Initialize services
-db = Database()
+try:
+    db = Database()
+    logger.info("Database initialized successfully")
+except Exception as e:
+    logger.error(f"Database initialization failed: {e}")
+    db = None  # Routes will fail gracefully when db is None
 
 # Queueing for analysis jobs:
 # - GCP path: Pub/Sub topic (PUBSUB_ANALYSIS_TOPIC or PUBSUB_TOPIC)
 # - AWS fallback: SQS_QUEUE_URL
-sqs_client = boto3.client('sqs', region_name=os.getenv('DEFAULT_AWS_REGION', 'us-east-1'))
 SQS_QUEUE_URL = os.getenv('SQS_QUEUE_URL', '')
+sqs_client = None
+if SQS_QUEUE_URL:
+    try:
+        sqs_client = boto3.client('sqs', region_name=os.getenv('DEFAULT_AWS_REGION', 'us-east-1'))
+    except Exception as e:
+        logger.warning(f"SQS client creation failed (expected on GCP): {e}")
 PUBSUB_ANALYSIS_TOPIC = os.getenv('PUBSUB_ANALYSIS_TOPIC') or os.getenv('PUBSUB_TOPIC', '')
 GCP_PROJECT_ID = os.getenv('GCP_PROJECT_ID') or os.getenv('GOOGLE_CLOUD_PROJECT', '')
-pubsub_publisher = pubsub_v1.PublisherClient() if PUBSUB_ANALYSIS_TOPIC else None
+pubsub_publisher = None
+if PUBSUB_ANALYSIS_TOPIC:
+    try:
+        pubsub_publisher = pubsub_v1.PublisherClient()
+    except Exception as e:
+        logger.warning(f"Pub/Sub client creation failed: {e}")
 
 
 def _publish_analysis_message(message: Dict[str, Any]) -> str:
