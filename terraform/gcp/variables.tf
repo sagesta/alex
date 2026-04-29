@@ -44,3 +44,29 @@ variable "create_frontend_bucket" {
   description = "Create a public GCS bucket for static Next export (demo)"
   default     = true
 }
+
+variable "create_load_balancer" {
+  type        = bool
+  description = "Create a global HTTP(S) load balancer: GCS → default, /api/* → Cloud Run portfolio API (see cloud_run_api_service_name)"
+  default     = false
+
+  validation {
+    condition = (
+      !var.create_load_balancer ||
+      (var.create_frontend_bucket && var.cloud_run_api_service_name != "")
+    )
+    error_message = "When create_load_balancer is true, create_frontend_bucket must be true and cloud_run_api_service_name must be set (deploy backend/api to Cloud Run in var.region first)."
+  }
+}
+
+variable "cloud_run_api_service_name" {
+  type        = string
+  description = "Existing Cloud Run service name for backend/api in var.region (e.g. alex-api). Required when create_load_balancer is true."
+  default     = ""
+}
+
+variable "load_balancer_domain" {
+  type        = string
+  description = "Optional FQDN for managed SSL (e.g. app.example.com). Leave empty for HTTP-only on the LB IP. Point DNS A/AAAA at load_balancer_ip before enabling HTTPS."
+  default     = ""
+}

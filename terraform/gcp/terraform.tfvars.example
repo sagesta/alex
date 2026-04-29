@@ -47,6 +47,17 @@ app_name   = "alex"
 #   Vertex/Bedrock model env, CORS if you call it from the GCS-hosted site
 
 # =============================================================================
+# ENVIRONMENT E — Global HTTP(S) load balancer (terraform/gcp/load_balancer.tf)
+# Set in terraform/gcp/terraform.tfvars — routes default traffic to the frontend bucket and /api/* to the portfolio API.
+# =============================================================================
+#   create_load_balancer       = true
+#   cloud_run_api_service_name = "alex-api"   # must already exist in var.region (gcloud run deploy … backend/api)
+#   load_balancer_domain       = ""           # optional: e.g. app.example.com — point DNS A/AAAA → terraform output load_balancer_ip first
+# After apply: open the site at terraform output load_balancer_http_url (or https URL if domain set), not the raw bucket URL.
+# Rebuild the static frontend with NEXT_PUBLIC_API_URL="" (or the LB https URL) so /api/user hits the same host as the UI.
+# Researcher stays a separate Cloud Run URL unless you add another path rule later.
+
+# =============================================================================
 # Cross-reference (after terraform apply)
 # =============================================================================
 #   Copy outputs into GitHub Variables where noted above. Re-apply terraform after pulling

@@ -30,6 +30,33 @@ output "frontend_public_url" {
   value       = var.create_frontend_bucket ? "https://${google_storage_bucket.frontend[0].name}.storage.googleapis.com/index.html" : null
 }
 
+output "load_balancer_ip" {
+  description = "Global LB IPv4 when create_load_balancer is true; create DNS A/AAAA for load_balancer_domain here"
+  value = (
+    var.create_load_balancer && var.create_frontend_bucket && var.cloud_run_api_service_name != ""
+    ? google_compute_global_address.lb[0].address
+    : null
+  )
+}
+
+output "load_balancer_http_url" {
+  description = "Open the app via the LB (not the raw bucket URL) so /api/* routes to Cloud Run. Use as site origin; set NEXT_PUBLIC_API_URL to \"\" for same-origin /api calls."
+  value = (
+    var.create_load_balancer && var.create_frontend_bucket && var.cloud_run_api_service_name != ""
+    ? "http://${google_compute_global_address.lb[0].address}"
+    : null
+  )
+}
+
+output "load_balancer_https_url" {
+  description = "https://<load_balancer_domain> when load_balancer_domain is set and cert is active"
+  value = (
+    var.create_load_balancer && var.create_frontend_bucket && var.cloud_run_api_service_name != "" && var.load_balancer_domain != ""
+    ? "https://${var.load_balancer_domain}"
+    : null
+  )
+}
+
 output "cloud_run_researcher_service" {
   description = "Cloud Run service name used by docker-gcp workflow"
   value       = "${var.app_name}-researcher"
