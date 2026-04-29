@@ -226,6 +226,7 @@ terraform.tfstate.d/
 *.tfstate.backup
 crash.log
 crash.*.log
+*-sa.json
 
 # Lambda deployment packages
 lambda_function.zip

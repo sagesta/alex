@@ -16,17 +16,9 @@ export const getApiUrl = (): string => {
     return trimBase(fromEnv);
   }
 
-  if (typeof window !== "undefined") {
-    if (
-      window.location.hostname === "localhost" ||
-      window.location.hostname === "127.0.0.1"
-    ) {
-      return "http://localhost:8000";
-    }
-    // Same-origin: works when LB routes /api/* to the portfolio API (no CORS needed).
-    return "";
-  }
-
+  // Default to relative path (same-origin).
+  // - In production: works when a Load Balancer proxies /api/* to the portfolio API.
+  // - In local dev (Docker): works via Next.js rewrites configured in next.config.ts using BACKEND_URL.
   return "";
 };
 

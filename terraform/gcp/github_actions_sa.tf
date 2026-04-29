@@ -11,6 +11,7 @@ locals {
     "roles/pubsub.admin",
     "roles/run.admin",                 # Cloud Run deploy from GitHub Actions
     "roles/compute.loadBalancerAdmin", # External HTTP(S) LB (terraform/gcp/load_balancer.tf)
+    "roles/iam.serviceAccountUser",    # Required to deploy Cloud Run with service accounts
   ]
 }
 

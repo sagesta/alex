@@ -190,10 +190,15 @@ def _publish_analysis_message(message: Dict[str, Any]) -> str:
             MessageBody=json.dumps(message)
         )
         return "sqs"
-    raise ValueError("No queue backend configured: set PUBSUB_ANALYSIS_TOPIC/PUBSUB_TOPIC (GCP) or SQS_QUEUE_URL (AWS)")
+    # No queue configured — local dev mode, log and return without publishing
+    logger.warning(
+        f"No queue backend configured (PUBSUB_ANALYSIS_TOPIC / SQS_QUEUE_URL not set). "
+        f"Running in local mock mode — job {message.get('job_id')} will not be processed by agents."
+    )
+    return "local"
 
 # Clerk authentication setup (exactly like saas reference)
-clerk_config = ClerkConfig(jwks_url=os.getenv("CLERK_JWKS_URL"))
+clerk_config = ClerkConfig(jwks_url=os.getenv("CLERK_JWKS_URL"), leeway=60)
 clerk_guard = ClerkHTTPBearer(clerk_config)
 
 async def get_current_user_id(creds: HTTPAuthorizationCredentials = Depends(clerk_guard)) -> str:

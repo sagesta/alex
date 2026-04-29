@@ -21,7 +21,7 @@ from psycopg_pool import ConnectionPool
 logger = logging.getLogger(__name__)
 
 # Aurora Data API uses :param names; psycopg uses %(param)s
-_NAMED_PARAM = re.compile(r":([a-zA-Z_][a-zA-Z0-9_]*)")
+_NAMED_PARAM = re.compile(r"(?<!:):([a-zA-Z_][a-zA-Z0-9_]*)")
 
 
 def _sql_to_psycopg(sql: str) -> str:
@@ -56,7 +56,12 @@ def _params_list_to_dict(parameters: Optional[List[Dict]]) -> Dict[str, Any]:
     out: Dict[str, Any] = {}
     for p in parameters:
         name = p["name"]
-        out[name] = _decode_data_api_value(p["value"])
+        value = _decode_data_api_value(p["value"])
+        # psycopg3 cannot adapt dict/list directly with %(name)s placeholders;
+        # they must be JSON strings when used with ::jsonb casts.
+        if isinstance(value, (dict, list)):
+            value = json.dumps(value)
+        out[name] = value
     return out
 
 
