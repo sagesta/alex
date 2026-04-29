@@ -75,11 +75,14 @@ jobs:
         env:
           IMAGE_BASE: ${{ env.ARTIFACT_REGISTRY_URL }}/${{ matrix.service }}
           NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${{ secrets.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY }}
+          NEXT_PUBLIC_API_URL: ${{ vars.NEXT_PUBLIC_API_URL || secrets.NEXT_PUBLIC_API_URL }}
         run: |
           BUILD_ARGS=()
           if [ "${{ matrix.service }}" = "frontend" ]; then
             test -n "$NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY" || { echo "::error::Missing NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY secret for frontend build"; exit 1; }
+            test -n "$NEXT_PUBLIC_API_URL" || { echo "::error::Missing NEXT_PUBLIC_API_URL (Variable or Secret) for frontend build-time API base URL"; exit 1; }
             BUILD_ARGS+=(--build-arg "NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=$NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY")
+            BUILD_ARGS+=(--build-arg "NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL")
           fi
           docker build --platform linux/amd64 \
             "${BUILD_ARGS[@]}" \

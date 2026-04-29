@@ -1,8 +1,8 @@
 # Frontend Next.js server on Cloud Run.
 # Build from repository root:
 #   docker build -f frontend/Dockerfile .
-# Env vars are injected by Cloud Run at runtime — NOT baked at build time (no NEXT_PUBLIC_* in Docker build args).
-# Set NEXT_PUBLIC_API_URL, NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY, etc. as Cloud Run env vars (deploy-frontend step).
+# NEXT_PUBLIC_* vars used by client-side code are resolved at build time by Next.js.
+# Pass required NEXT_PUBLIC_* via Docker build args in CI (runtime env alone is not enough for browser bundle values).
 
 FROM --platform=linux/amd64 node:20-slim AS builder
 WORKDIR /frontend
@@ -16,6 +16,8 @@ COPY frontend/ ./
 # This value is public by design (NEXT_PUBLIC_), passed from CI as a build arg.
 ARG NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=""
 ENV NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=${NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY}
+ARG NEXT_PUBLIC_API_URL=""
+ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
 
 # Build Next.js app (server mode — no output: export)
 RUN npm run build
