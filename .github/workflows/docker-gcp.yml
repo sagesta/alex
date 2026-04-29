@@ -1,0 +1,66 @@
+# Build and push container images to Artifact Registry (GCP).
+# Prereq: terraform/gcp applied; repository Variable or Secret ARTIFACT_REGISTRY_URL (terraform output artifact_registry_url).
+#
+# Today only backend/researcher has a Dockerfile. Other agents (planner, tagger, …) are Lambda-oriented
+# in the course repo — add a Dockerfile per service, then extend the matrix below.
+
+name: Docker GCP
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - "backend/researcher/**"
+      - ".github/workflows/docker-gcp.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  build-push:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - service: researcher
+            context: backend/researcher
+
+    env:
+      ARTIFACT_REGISTRY_URL: ${{ vars.ARTIFACT_REGISTRY_URL || vars.GCP_ARTIFACT_REGISTRY || secrets.ARTIFACT_REGISTRY_URL || secrets.GCP_ARTIFACT_REGISTRY }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Check Artifact Registry URL
+        run: |
+          test -n "$ARTIFACT_REGISTRY_URL" || { echo "::error::Set ARTIFACT_REGISTRY_URL (from terraform output artifact_registry_url)"; exit 1; }
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY || secrets.GOOGLE_CREDENTIALS || secrets.GCP_CREDENTIALS || secrets.GOOGLE_APPLICATION_CREDENTIALS_JSON }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Configure Docker for Artifact Registry
+        run: |
+          REG_HOST=$(echo "$ARTIFACT_REGISTRY_URL" | cut -d/ -f1)
+          gcloud auth configure-docker "$REG_HOST" --quiet
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push
+        working-directory: ${{ matrix.context }}
+        env:
+          IMAGE_BASE: ${{ env.ARTIFACT_REGISTRY_URL }}/${{ matrix.service }}
+        run: |
+          TAG="${GITHUB_SHA:0:7}"
+          docker build --platform linux/amd64 -t "${IMAGE_BASE}:${TAG}" -t "${IMAGE_BASE}:latest" .
+          docker push "${IMAGE_BASE}:${TAG}"
+          docker push "${IMAGE_BASE}:latest"
