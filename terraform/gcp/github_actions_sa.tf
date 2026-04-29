@@ -9,6 +9,7 @@ locals {
     "roles/storage.admin",
     "roles/secretmanager.admin",
     "roles/pubsub.admin",
+    "roles/run.admin", # Cloud Run deploy from GitHub Actions
   ]
 }
 

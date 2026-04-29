@@ -14,7 +14,13 @@ app_name   = "alex"
 #   Project: TF_VAR_project_id, GCP_PROJECT_ID, PROJECT_ID, GOOGLE_CLOUD_PROJECT, GCLOUD_PROJECT
 #   Region:  TF_VAR_region, TF_VAR_REGION, GCP_REGION, GOOGLE_CLOUD_REGION, DEFAULT_REGION, GCLOUD_REGION
 #   SA JSON: GCP_SA_KEY, GOOGLE_CREDENTIALS, GCP_CREDENTIALS, GOOGLE_APPLICATION_CREDENTIALS_JSON
-# Docker push (.github/workflows/docker-gcp.yml): ARTIFACT_REGISTRY_URL = terraform output artifact_registry_url
+# Docker / Cloud Run / frontend (.github/workflows/docker-gcp.yml):
+#   ARTIFACT_REGISTRY_URL = terraform output artifact_registry_url
+#   GCS_FRONTEND_BUCKET   = terraform output frontend_bucket_name (static Next export → GCS)
+#   NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY (secret) — required for frontend build unless you skip static deploy
+#   NEXT_PUBLIC_API_URL — optional; point at your Cloud Run / API URL for the demo
+#   CLOUD_RUN_RESEARCHER_SERVICE — defaults to alex-researcher if app_name is alex
+# Re-apply terraform after pulling: adds GCS frontend bucket + roles/run.admin on the GitHub Actions SA
 # Optional overrides:
 #   TF_VAR_app_name        = alex
 #   TF_VAR_db_tier         = db-f1-micro

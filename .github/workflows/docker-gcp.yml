@@ -1,8 +1,8 @@
-# Build and push container images to Artifact Registry (GCP).
-# Prereq: terraform/gcp applied; repository Variable or Secret ARTIFACT_REGISTRY_URL (terraform output artifact_registry_url).
+# Build researcher image → Artifact Registry → Cloud Run.
+# Build Next static export → GCS bucket (terraform output frontend_bucket_name → GitHub Variable GCS_FRONTEND_BUCKET).
 #
-# Today only backend/researcher has a Dockerfile. Other agents (planner, tagger, …) are Lambda-oriented
-# in the course repo — add a Dockerfile per service, then extend the matrix below.
+# Prereqs: terraform apply in terraform/gcp; GitHub secrets/vars (see terraform.tfvars.example).
+# Clerk: set repository secret NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY (and any other NEXT_PUBLIC_* your app needs).
 
 name: Docker GCP
 
@@ -13,6 +13,7 @@ on:
       - main
     paths:
       - "backend/researcher/**"
+      - "frontend/**"
       - ".github/workflows/docker-gcp.yml"
 
 permissions:
@@ -21,6 +22,10 @@ permissions:
 jobs:
   build-push:
     runs-on: ubuntu-latest
+    env:
+      ARTIFACT_REGISTRY_URL: ${{ vars.ARTIFACT_REGISTRY_URL || vars.GCP_ARTIFACT_REGISTRY || secrets.ARTIFACT_REGISTRY_URL || secrets.GCP_ARTIFACT_REGISTRY }}
+    outputs:
+      image_tag: ${{ steps.tag.outputs.tag }}
     strategy:
       fail-fast: false
       matrix:
@@ -28,16 +33,17 @@ jobs:
           - service: researcher
             context: backend/researcher
 
-    env:
-      ARTIFACT_REGISTRY_URL: ${{ vars.ARTIFACT_REGISTRY_URL || vars.GCP_ARTIFACT_REGISTRY || secrets.ARTIFACT_REGISTRY_URL || secrets.GCP_ARTIFACT_REGISTRY }}
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
       - name: Check Artifact Registry URL
         run: |
-          test -n "$ARTIFACT_REGISTRY_URL" || { echo "::error::Set ARTIFACT_REGISTRY_URL (from terraform output artifact_registry_url)"; exit 1; }
+          test -n "$ARTIFACT_REGISTRY_URL" || { echo "::error::Set ARTIFACT_REGISTRY_URL (terraform output artifact_registry_url)"; exit 1; }
+
+      - name: Image tag
+        id: tag
+        run: echo "tag=${GITHUB_SHA:0:7}" >> "$GITHUB_OUTPUT"
 
       - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v2
@@ -60,7 +66,137 @@ jobs:
         env:
           IMAGE_BASE: ${{ env.ARTIFACT_REGISTRY_URL }}/${{ matrix.service }}
         run: |
-          TAG="${GITHUB_SHA:0:7}"
-          docker build --platform linux/amd64 -t "${IMAGE_BASE}:${TAG}" -t "${IMAGE_BASE}:latest" .
-          docker push "${IMAGE_BASE}:${TAG}"
+          docker build --platform linux/amd64 -t "${IMAGE_BASE}:${{ steps.tag.outputs.tag }}" -t "${IMAGE_BASE}:latest" .
+          docker push "${IMAGE_BASE}:${{ steps.tag.outputs.tag }}"
           docker push "${IMAGE_BASE}:latest"
+
+  deploy-researcher:
+    needs: build-push
+    runs-on: ubuntu-latest
+    env:
+      ARTIFACT_REGISTRY_URL: ${{ vars.ARTIFACT_REGISTRY_URL || vars.GCP_ARTIFACT_REGISTRY || secrets.ARTIFACT_REGISTRY_URL || secrets.GCP_ARTIFACT_REGISTRY }}
+      GCP_REGION: ${{ vars.TF_VAR_region || vars.TF_VAR_REGION || vars.GCP_REGION || secrets.TF_VAR_region || secrets.TF_VAR_REGION || secrets.GCP_REGION }}
+      GCP_PROJECT: ${{ vars.TF_VAR_project_id || vars.GCP_PROJECT_ID || secrets.TF_VAR_project_id || secrets.GCP_PROJECT_ID }}
+      CLOUD_RUN_SERVICE: ${{ vars.CLOUD_RUN_RESEARCHER_SERVICE || 'alex-researcher' }}
+    outputs:
+      service_url: ${{ steps.deploy.outputs.service_url }}
+    steps:
+      - name: Check GCP config
+        run: |
+          test -n "$GCP_REGION" && test -n "$GCP_PROJECT" || { echo "::error::Set TF_VAR_region and TF_VAR_project_id (or GCP_REGION / GCP_PROJECT_ID)"; exit 1; }
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY || secrets.GOOGLE_CREDENTIALS || secrets.GCP_CREDENTIALS || secrets.GOOGLE_APPLICATION_CREDENTIALS_JSON }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Deploy to Cloud Run
+        id: deploy
+        env:
+          IMAGE: ${{ env.ARTIFACT_REGISTRY_URL }}/researcher:${{ needs.build-push.outputs.image_tag }}
+        run: |
+          gcloud run deploy "$CLOUD_RUN_SERVICE" \
+            --image "$IMAGE" \
+            --region "$GCP_REGION" \
+            --project "$GCP_PROJECT" \
+            --platform managed \
+            --allow-unauthenticated \
+            --port 8000 \
+            --quiet
+          URL=$(gcloud run services describe "$CLOUD_RUN_SERVICE" --region "$GCP_REGION" --project "$GCP_PROJECT" --format 'value(status.url)')
+          echo "service_url=$URL" >> "$GITHUB_OUTPUT"
+          echo "Cloud Run URL: $URL"
+
+  deploy-frontend:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    env:
+      GCS_FRONTEND_BUCKET: ${{ vars.GCS_FRONTEND_BUCKET || vars.FRONTEND_BUCKET || secrets.GCS_FRONTEND_BUCKET }}
+    outputs:
+      frontend_url: ${{ steps.sync.outputs.frontend_url }}
+      skipped: ${{ steps.check.outputs.skipped }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - id: check
+        run: |
+          if [ -z "$GCS_FRONTEND_BUCKET" ]; then
+            echo "skipped=true" >> "$GITHUB_OUTPUT"
+            echo "::notice::Set GitHub Variable GCS_FRONTEND_BUCKET to terraform output frontend_bucket_name to deploy the static site."
+          else
+            echo "skipped=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Authenticate to Google Cloud
+        if: steps.check.outputs.skipped == 'false'
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY || secrets.GOOGLE_CREDENTIALS || secrets.GCP_CREDENTIALS || secrets.GOOGLE_APPLICATION_CREDENTIALS_JSON }}
+
+      - name: Set up Cloud SDK
+        if: steps.check.outputs.skipped == 'false'
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Setup Node
+        if: steps.check.outputs.skipped == 'false'
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install and build frontend
+        if: steps.check.outputs.skipped == 'false'
+        working-directory: frontend
+        env:
+          NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${{ secrets.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY }}
+          NEXT_PUBLIC_API_URL: ${{ vars.NEXT_PUBLIC_API_URL || secrets.NEXT_PUBLIC_API_URL }}
+        run: |
+          npm ci
+          npm run build
+
+      - name: Sync to GCS
+        id: sync
+        if: steps.check.outputs.skipped == 'false'
+        run: |
+          gsutil -m rsync -r -d frontend/out "gs://${GCS_FRONTEND_BUCKET}/"
+          URL="https://storage.googleapis.com/${GCS_FRONTEND_BUCKET}/index.html"
+          echo "frontend_url=$URL" >> "$GITHUB_OUTPUT"
+          echo "Frontend URL: $URL"
+
+  demo-urls:
+    needs: [build-push, deploy-researcher, deploy-frontend]
+    runs-on: ubuntu-latest
+    if: always()
+    steps:
+      - name: Presentation summary
+        env:
+          RESEARCHER_URL: ${{ needs.deploy-researcher.outputs.service_url }}
+          FRONTEND_URL: ${{ needs.deploy-frontend.outputs.frontend_url }}
+          FE_SKIPPED: ${{ needs.deploy-frontend.outputs.skipped }}
+          RESEARCHER_RESULT: ${{ needs.deploy-researcher.result }}
+        run: |
+          {
+            echo "## Demo URLs"
+            echo ""
+            echo "| Service | URL |"
+            echo "| --- | --- |"
+            if [ "$RESEARCHER_RESULT" = "success" ] && [ -n "$RESEARCHER_URL" ]; then
+              echo "| **Researcher (Cloud Run)** | $RESEARCHER_URL |"
+            else
+              echo "| **Researcher (Cloud Run)** | *(deploy failed or skipped — check job logs)* |"
+            fi
+            if [ "$FE_SKIPPED" = "true" ]; then
+              echo "| **Frontend (GCS)** | *Set \`GCS_FRONTEND_BUCKET\` + re-run; or open terraform output \`frontend_public_url\`* |"
+            elif [ -n "$FRONTEND_URL" ]; then
+              echo "| **Frontend (GCS static)** | $FRONTEND_URL |"
+            else
+              echo "| **Frontend (GCS)** | *(build/upload failed — see deploy-frontend job; needs Clerk \`NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY\`)* |"
+            fi
+            echo ""
+            echo "Open this summary from the workflow run’s **Summary** tab for your presentation."
+          } >> "$GITHUB_STEP_SUMMARY"

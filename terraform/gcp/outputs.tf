@@ -20,6 +20,21 @@ output "database_url_secret_id" {
   value       = google_secret_manager_secret.db_url.secret_id
 }
 
+output "frontend_bucket_name" {
+  description = "GCS bucket for Next static export; set GitHub Variable GCS_FRONTEND_BUCKET to this value"
+  value       = var.create_frontend_bucket ? google_storage_bucket.frontend[0].name : null
+}
+
+output "frontend_public_url" {
+  description = "Direct HTTPS URL to the exported site (demo)"
+  value       = var.create_frontend_bucket ? "https://storage.googleapis.com/${google_storage_bucket.frontend[0].name}/index.html" : null
+}
+
+output "cloud_run_researcher_service" {
+  description = "Cloud Run service name used by docker-gcp workflow"
+  value       = "${var.app_name}-researcher"
+}
+
 # --- GitHub Actions (demo JSON key) — see .github/workflows/terraform-gcp.yml
 
 output "github_actions_service_account_email" {

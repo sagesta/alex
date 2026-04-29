@@ -38,3 +38,9 @@ variable "create_github_actions_key" {
   description = "Create a JSON key for the GitHub Actions SA (sensitive; stored in Terraform state)"
   default     = true
 }
+
+variable "create_frontend_bucket" {
+  type        = bool
+  description = "Create a public GCS bucket for static Next export (demo)"
+  default     = true
+}
