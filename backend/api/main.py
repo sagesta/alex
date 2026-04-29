@@ -53,7 +53,7 @@ cors_origins = [
 ]
 cors_origin_regex = os.getenv(
     "CORS_ORIGIN_REGEX",
-    r"https://(storage\.googleapis\.com|[a-z0-9][-a-z0-9_.]*\.storage\.googleapis\.com|[a-z0-9][-a-z0-9]*\.run\.app)",
+    r"https://(storage\.googleapis\.com|[a-z0-9][-a-z0-9_.]*\.(storage\.googleapis\.com|run\.app))",
 )
 app.add_middleware(
     CORSMiddleware,
@@ -83,6 +83,7 @@ async def handle_preflight(request: Request, call_next):
         allowed = origin in cors_origins
         if not allowed and _cors_origin_pattern and _cors_origin_pattern.fullmatch(origin):
             allowed = True
+        
         if allowed:
             return JSONResponse(
                 status_code=200,
@@ -96,6 +97,8 @@ async def handle_preflight(request: Request, call_next):
                     "Access-Control-Max-Age": "3600",
                 },
             )
+        else:
+            logger.warning(f"CORS preflight rejected for origin: {origin}")
     return await call_next(request)
 
 # Custom exception handlers for better error messages
