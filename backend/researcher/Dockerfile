@@ -5,6 +5,7 @@
 FROM --platform=linux/amd64 python:3.12-slim
 
 WORKDIR /app
+ENV PYTHONPATH=/app
 
 RUN apt-get update && apt-get install -y \
     curl \
@@ -24,6 +25,9 @@ WORKDIR /app
 RUN uv sync --frozen --no-install-project
 
 COPY backend/researcher/*.py /app/
+
+# server.py imports src.litellm_model_factory; keep as package directory under /app/src
+COPY backend/database/src ./src/
 
 EXPOSE 8080
 # Cloud Run sets PORT; default matches gcloud --port if unset locally
