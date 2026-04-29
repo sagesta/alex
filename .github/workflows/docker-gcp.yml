@@ -74,8 +74,15 @@ jobs:
         working-directory: ${{ github.workspace }}
         env:
           IMAGE_BASE: ${{ env.ARTIFACT_REGISTRY_URL }}/${{ matrix.service }}
+          NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${{ secrets.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY }}
         run: |
+          BUILD_ARGS=()
+          if [ "${{ matrix.service }}" = "frontend" ]; then
+            test -n "$NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY" || { echo "::error::Missing NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY secret for frontend build"; exit 1; }
+            BUILD_ARGS+=(--build-arg "NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=$NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY")
+          fi
           docker build --platform linux/amd64 \
+            "${BUILD_ARGS[@]}" \
             -f "${{ matrix.context }}/Dockerfile" \
             -t "${IMAGE_BASE}:${{ steps.tag.outputs.tag }}" \
             -t "${IMAGE_BASE}:latest" \

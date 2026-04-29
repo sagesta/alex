@@ -12,6 +12,11 @@ RUN npm ci
 
 COPY frontend/ ./
 
+# Clerk publishable key is required during `next build` for prerender.
+# This value is public by design (NEXT_PUBLIC_), passed from CI as a build arg.
+ARG NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=""
+ENV NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=${NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY}
+
 # Build Next.js app (server mode — no output: export)
 RUN npm run build
 
