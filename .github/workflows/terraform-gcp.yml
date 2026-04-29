@@ -5,7 +5,8 @@
 # 2. Run terraform apply locally with your user credentials (creates GitHub Actions SA + key).
 # 3. Repository secret GCP_SA_KEY: paste the decoded JSON key
 #    (terraform output -raw github_actions_sa_key_base64 | base64 -d  on Unix/macOS/Git bash).
-# 4. Repository Variables: TF_VAR_project_id, TF_VAR_region (must match terraform.tfvars).
+# 4. Terraform inputs (must match terraform.tfvars) — use either Repository Variables OR Secrets:
+#    TF_VAR_project_id or GCP_PROJECT_ID; TF_VAR_region, TF_VAR_REGION, or GCP_REGION.
 # 5. Push this repo; this workflow validates configuration and runs terraform plan in CI.
 #
 # Apply is intended to run locally (state file stays on your machine) unless you add a remote
@@ -43,15 +44,19 @@ jobs:
     defaults:
       run:
         working-directory: terraform/gcp
+    # Prefer Variables; fall back to Secrets (same names many users store as secrets).
+    env:
+      TF_VAR_project_id: ${{ vars.TF_VAR_project_id || secrets.TF_VAR_project_id || secrets.GCP_PROJECT_ID }}
+      TF_VAR_region: ${{ vars.TF_VAR_region || secrets.TF_VAR_region || secrets.TF_VAR_REGION || secrets.GCP_REGION }}
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Check required GitHub Variables
+      - name: Check required Terraform inputs
         run: |
-          test -n "${{ vars.TF_VAR_project_id }}" || { echo "::error::Set repository Variable TF_VAR_project_id (GCP project id)"; exit 1; }
-          test -n "${{ vars.TF_VAR_region }}" || { echo "::error::Set repository Variable TF_VAR_region (e.g. us-central1)"; exit 1; }
+          test -n "$TF_VAR_project_id" || { echo "::error::Set TF_VAR_project_id or GCP_PROJECT_ID (repository Variable or Secret)"; exit 1; }
+          test -n "$TF_VAR_region" || { echo "::error::Set TF_VAR_region, TF_VAR_REGION, or GCP_REGION (repository Variable or Secret)"; exit 1; }
 
       - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v2
@@ -71,22 +76,13 @@ jobs:
         run: terraform init -input=false
 
       - name: Terraform Validate
-        env:
-          TF_VAR_project_id: ${{ vars.TF_VAR_project_id }}
-          TF_VAR_region: ${{ vars.TF_VAR_region }}
         run: terraform validate -no-color
 
       - name: Terraform Plan
-        env:
-          TF_VAR_project_id: ${{ vars.TF_VAR_project_id }}
-          TF_VAR_region: ${{ vars.TF_VAR_region }}
         run: terraform plan -no-color -input=false
 
       - name: Post-plan summary (optional GitHub Variables after local apply)
         if: success()
-        env:
-          TF_VAR_project_id: ${{ vars.TF_VAR_project_id }}
-          TF_VAR_region: ${{ vars.TF_VAR_region }}
         run: |
           {
             echo "### After a successful **local** \`terraform apply\`, copy outputs to repository Variables"

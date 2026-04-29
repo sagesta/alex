@@ -10,10 +10,9 @@ app_name   = "alex"
 # create_github_actions_sa  = false
 # create_github_actions_key = false
 
-# --- GitHub repository Variables (Settings → Secrets and variables → Actions → Variables)
-# Required for .github/workflows/terraform-gcp.yml:
-#   TF_VAR_project_id = (same as project_id above)
-#   TF_VAR_region     = (same as region above)
+# --- GitHub Actions: Terraform inputs (Variables or Secrets — workflow accepts both)
+#   TF_VAR_project_id  or  GCP_PROJECT_ID  = (same as project_id above)
+#   TF_VAR_region  or  TF_VAR_REGION  or  GCP_REGION  = (same as region above)
 # Optional overrides:
 #   TF_VAR_app_name        = alex
 #   TF_VAR_db_tier         = db-f1-micro
