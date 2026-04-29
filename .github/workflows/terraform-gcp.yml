@@ -5,8 +5,8 @@
 # 2. Run terraform apply locally with your user credentials (creates GitHub Actions SA + key).
 # 3. Repository secret GCP_SA_KEY: paste the decoded JSON key
 #    (terraform output -raw github_actions_sa_key_base64 | base64 -d  on Unix/macOS/Git bash).
-# 4. Terraform inputs (must match terraform.tfvars) — use either Repository Variables OR Secrets:
-#    TF_VAR_project_id or GCP_PROJECT_ID; TF_VAR_region, TF_VAR_REGION, or GCP_REGION.
+# 4. Terraform inputs (must match terraform.tfvars) — Variables or Secrets; many names are accepted
+#    (see job env block). SA JSON: GCP_SA_KEY or GOOGLE_CREDENTIALS / GCP_CREDENTIALS.
 # 5. Push this repo; this workflow validates configuration and runs terraform plan in CI.
 #
 # Apply is intended to run locally (state file stays on your machine) unless you add a remote
@@ -44,10 +44,10 @@ jobs:
     defaults:
       run:
         working-directory: terraform/gcp
-    # Prefer Variables; fall back to Secrets (same names many users store as secrets).
+    # Resolve TF_VAR_* from common Variable/Secret naming styles (first non-empty wins).
     env:
-      TF_VAR_project_id: ${{ vars.TF_VAR_project_id || secrets.TF_VAR_project_id || secrets.GCP_PROJECT_ID }}
-      TF_VAR_region: ${{ vars.TF_VAR_region || secrets.TF_VAR_region || secrets.TF_VAR_REGION || secrets.GCP_REGION }}
+      TF_VAR_project_id: ${{ vars.TF_VAR_project_id || vars.GCP_PROJECT_ID || vars.PROJECT_ID || vars.GOOGLE_CLOUD_PROJECT || vars.GCLOUD_PROJECT || secrets.TF_VAR_project_id || secrets.GCP_PROJECT_ID || secrets.PROJECT_ID || secrets.GOOGLE_CLOUD_PROJECT || secrets.GCLOUD_PROJECT }}
+      TF_VAR_region: ${{ vars.TF_VAR_region || vars.TF_VAR_REGION || vars.GCP_REGION || vars.GOOGLE_CLOUD_REGION || vars.DEFAULT_REGION || vars.GCLOUD_REGION || secrets.TF_VAR_region || secrets.TF_VAR_REGION || secrets.GCP_REGION || secrets.GOOGLE_CLOUD_REGION || secrets.DEFAULT_REGION || secrets.GCLOUD_REGION }}
 
     steps:
       - name: Checkout
@@ -55,13 +55,13 @@ jobs:
 
       - name: Check required Terraform inputs
         run: |
-          test -n "$TF_VAR_project_id" || { echo "::error::Set TF_VAR_project_id or GCP_PROJECT_ID (repository Variable or Secret)"; exit 1; }
-          test -n "$TF_VAR_region" || { echo "::error::Set TF_VAR_region, TF_VAR_REGION, or GCP_REGION (repository Variable or Secret)"; exit 1; }
+          test -n "$TF_VAR_project_id" || { echo "::error::Set project id (e.g. TF_VAR_project_id, GCP_PROJECT_ID, PROJECT_ID, GOOGLE_CLOUD_PROJECT — Variable or Secret)"; exit 1; }
+          test -n "$TF_VAR_region" || { echo "::error::Set region (e.g. TF_VAR_region, TF_VAR_REGION, GCP_REGION, DEFAULT_REGION — Variable or Secret)"; exit 1; }
 
       - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v2
         with:
-          credentials_json: ${{ secrets.GCP_SA_KEY }}
+          credentials_json: ${{ secrets.GCP_SA_KEY || secrets.GOOGLE_CREDENTIALS || secrets.GCP_CREDENTIALS || secrets.GOOGLE_APPLICATION_CREDENTIALS_JSON }}
 
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
