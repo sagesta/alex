@@ -1,11 +1,12 @@
 # Build from repository root (see .github/workflows/docker-gcp.yml):
 #   docker build -f backend/researcher/Dockerfile .
-# researcher/pyproject.toml depends on ../database (alex-database); a context of only backend/researcher breaks uv sync and imports (Cloud Run then crashes on startup).
+# researcher/pyproject.toml depends on ../database (alex-database); a context of only backend/researcher breaks uv sync.
 
 FROM --platform=linux/amd64 python:3.12-slim
 
 WORKDIR /app
-ENV PYTHONPATH=/app
+# Resolve `from src.litellm_model_factory ...`: package lives under /app/src and/or /database/src
+ENV PYTHONPATH=/app:/database
 
 RUN apt-get update && apt-get install -y \
     curl \
@@ -17,7 +18,6 @@ RUN npx -y playwright install --with-deps chromium
 
 RUN pip install --no-cache-dir uv
 
-# Monorepo: alex-database must live at ../database relative to researcher (see pyproject [tool.uv.sources])
 COPY backend/database /database
 COPY backend/researcher/pyproject.toml backend/researcher/uv.lock /app/
 
@@ -26,10 +26,13 @@ RUN uv sync --frozen --no-install-project
 
 COPY backend/researcher/*.py /app/
 
-# server.py imports src.litellm_model_factory; keep as package directory under /app/src
-COPY backend/database/src ./src/
+# Keep `src` as a package directory at /app/src (not flattened into /app)
+COPY backend/database/src/ /app/src/
+
+# Fail the image build if this import does not work on Cloud Run
+RUN PYTHONPATH=/app:/database /app/.venv/bin/python -c "from src.litellm_model_factory import create_litellm_model; print('import_ok')"
 
 EXPOSE 8080
-# Cloud Run sets PORT; default matches gcloud --port if unset locally
 ENV PORT=8080
-CMD ["sh", "-c", "exec uv run uvicorn server:app --host 0.0.0.0 --port ${PORT}"]
+# Use venv Python directly so PYTHONPATH is honored (avoid uv run masking env for the child)
+CMD ["sh", "-c", "exec /app/.venv/bin/python -m uvicorn server:app --host 0.0.0.0 --port ${PORT}"]

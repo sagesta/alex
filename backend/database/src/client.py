@@ -23,6 +23,18 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 
+def get_database_client():
+    """
+    Return PostgresClient when DATABASE_URL is set (GCP Cloud SQL / Postgres),
+    otherwise Aurora Data API client.
+    """
+    if os.environ.get("DATABASE_URL"):
+        from .pg_client import PostgresClient
+
+        return PostgresClient()
+    return DataAPIClient()
+
+
 class DataAPIClient:
     """Wrapper for AWS RDS Data API to simplify database operations"""
 

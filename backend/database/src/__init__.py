@@ -3,7 +3,8 @@ Database package for Alex Financial Planner
 Provides database models, schemas, and Data API client
 """
 
-from .client import DataAPIClient
+from .client import DataAPIClient, get_database_client
+from .litellm_model_factory import create_litellm_model
 from .models import Database
 from .schemas import (
     # Types
@@ -32,6 +33,8 @@ from .schemas import (
 __all__ = [
     'Database',
     'DataAPIClient',
+    'get_database_client',
+    'create_litellm_model',
     'InstrumentCreate',
     'UserCreate',
     'AccountCreate',

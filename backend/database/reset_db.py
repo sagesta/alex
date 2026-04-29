@@ -7,13 +7,14 @@ Drops all tables, recreates schema, and loads seed data
 import sys
 import argparse
 from pathlib import Path
-from src.client import DataAPIClient
+from typing import Any
+from src.client import DataAPIClient, get_database_client
 from src.models import Database
 from src.schemas import UserCreate, AccountCreate, PositionCreate
 from decimal import Decimal
 
 
-def drop_all_tables(db: DataAPIClient):
+def drop_all_tables(db: Any):
     """Drop all tables in correct order (respecting foreign keys)"""
     print("🗑️  Dropping existing tables...")
     
@@ -153,7 +154,7 @@ def main():
     print("=" * 50)
     
     # Initialize database
-    db = DataAPIClient()
+    db = get_database_client()
     db_models = Database()
     
     if not args.skip_drop:

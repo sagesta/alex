@@ -1,19 +1,23 @@
-# Alex - AI in Production Course Project Guide
+# Alex - AI in Production Course Project Guide (Google Cloud)
 
 ## Project Overview
 
 **Alex** (Agentic Learning Equities eXplainer) is a multi-agent enterprise-grade SaaS financial planning platform. This is the capstone project for Weeks 3 and 4 of the "AI in Production" course taught by Ed Donner on Udemy that deploys Agent solutions to production.
 
-The user is a student on the course. You are working with the user to help them build Alex successfully. The user is working in Cursor (the VS Code fork), and they might be on a Windows PC, a Mac (intel or Apple silicon) or a Linux machine. All python code is run with uv and there are uv projects in every directory that needs it. The student is familiar with AWS services (Lambda, App Runner, Cloudfront) and has been introduced to Terraform, uv, NextJS and docker. They have budget alerts set, but they should still regularly check the billing screens in AWS console to keep a close watch on costs.
+The user is a student on the course. You are working with the user to help them build Alex successfully. The user is working in Cursor (the VS Code fork), and they might be on a Windows PC, a Mac (intel or Apple silicon) or a Linux machine. All python code is run with uv and there are uv projects in every directory that needs it. The student is familiar with Google Cloud managed services (Cloud Run, Cloud Storage, IAM) and has been introduced to Terraform, uv, NextJS and docker. They should set budget alerts and regularly check billing in the Google Cloud console.
 
-The student has an AWS root user, and also an IAM user called "aiengineer" with permissions. They have run `aws configure` and should be signed in as the aiengineer user with their default region.
+The student uses a Google Cloud project with appropriate IAM roles (service accounts with least-privilege roles per component—see **Reference project: InfraGuard AI** below). Local dev often uses `gcloud auth application-default login`; **Cloud Run, CI, and Docker** typically use a **service account JSON key** (`GOOGLE_APPLICATION_CREDENTIALS`) or Workload Identity—same pattern as `infraguad_ai`. Compute stays **fully managed** (Cloud Run, Cloud Functions, managed databases)—no pet VMs for the Alex app surface.
+
+### Platform choice: Cloud Run first
+
+**Prefer [Cloud Run](https://cloud.google.com/run)** for HTTP services and containerized workloads: no servers to patch, scale-to-zero, pay per use, and one Dockerfile deploys consistently. Use **Cloud Functions** for small, event-driven handlers if the guides split responsibilities that way. Avoid Compute Engine **unless** a guide explicitly needs it—this track optimizes for **easy operations**, not VM babysitting.
 
 ### What Students Will Build
 
 Students will deploy a complete production AI system featuring:
 - **Multi-agent collaboration**: 5 specialized AI agents working together via orchestration
-- **Serverless architecture**: Lambda, Aurora Serverless v2, App Runner, API Gateway, SQS
-- **Cost-optimized vector storage**: S3 Vectors (90% cheaper than OpenSearch)
+- **Serverless / managed architecture**: Cloud Run (and/or Cloud Functions), Cloud SQL (PostgreSQL), Pub/Sub, API Gateway or Cloud Load Balancing in front of services
+- **Cost-optimized vector storage**: Cloud Storage–backed or managed vector options (see guides—not self-hosted OpenSearch clusters)
 - **Real-time financial analysis**: Portfolio management, retirement projections, market research
 - **Production-grade practices**: Observability, guardrails, security, monitoring
 - **Full-stack application**: NextJS React frontend with Clerk authentication
@@ -21,11 +25,11 @@ Students will deploy a complete production AI system featuring:
 ### Learning Objectives
 
 By completing this project, students will:
-1. Deploy and manage production AI infrastructure on AWS
+1. Deploy and manage production AI infrastructure on **Google Cloud**
 2. Implement multi-agent systems using the OpenAI Agents SDK
-3. Integrate AWS Bedrock (with Nova Pro model) for LLM capabilities
-4. Build cost-effective vector search with S3 Vectors and SageMaker embeddings
-5. Create serverless agent orchestration with SQS and Lambda
+3. Integrate **Vertex AI** (or compatible models via LiteLLM) for LLM capabilities
+4. Build cost-effective embeddings and vector search (Vertex AI / pipelines per guide)
+5. Create orchestration with **Pub/Sub** and **Cloud Run** (or Cloud Functions)
 6. Deploy a complete full-stack SaaS application
 7. Implement enterprise features: monitoring, observability, guardrails, security
 
@@ -33,15 +37,40 @@ By completing this project, students will:
 
 Alex is a SaaS product that provides insights on users' equity portfolios through reports and charts. Alex is integrated with Clerk for user management and the database architecture keeps user data separate.
 
+### Terraform + full app setup
+
+This deployment aims for a **complete application on Google Cloud** with **Terraform for fast, repeatable provisioning** (independent modules under `terraform/*`, Google provider). Use `terraform.tfvars` per module with `project_id` and `region` aligned everywhere.
+
+### Reference project: InfraGuard AI (`infraguad_ai`)
+
+The sibling repo **`C:\Users\adebo\PROJECTS\infraguad_ai`** is the working reference for **Vertex AI**, **service accounts**, and **Terraform conventions** on this machine. Use it when wiring Alex—even though InfraGuard’s sample Terraform uses **Compute Engine + Artifact Registry** for their stack, while Alex standardizes on **Cloud Run** and managed services **without self-managed VMs**.
+
+From InfraGuard, reuse these patterns for Alex:
+
+| Topic | Pattern (see `infraguad_ai` README, `CONTEXT.md`, `terraform/`) |
+|--------|-------------------------------------------------------------------|
+| **Auth** | `GOOGLE_APPLICATION_CREDENTIALS` → path to a **service account JSON key**; `GCP_PROJECT_ID`, `GCP_REGION` (e.g. `us-central1`). ADC via `gcloud auth application-default login` is fine for dev; **containers and CI** typically use the JSON key or Workload Identity—not username/password. |
+| **IAM** | Dedicated service account(s): at minimum roles such as **Vertex AI User** for inference; add **Artifact Registry** writer (push images), **Cloud Run Admin** / **Developer**, **Cloud SQL Client**, **Secret Manager Secret Accessor**, etc., as Terraform adds services—least privilege per deployable. |
+| **APIs** | Enable required APIs on the GCP project (**Vertex AI API**, and if using Gemini via GenAI / agent flows, whatever **Agent Platform** or related APIs your SDK expects). InfraGuard’s `CONTEXT.md` warns that missing APIs can produce **404** responses that look like generic routing failures—check Console → APIs & Services first. |
+| **Local Docker** | Mount a **single JSON key file** (e.g. repo `secrets/gcp-key.json` gitignored → `/run/secrets/gcp-key.json`). If the mount path is accidentally a **directory**, ADC fails in non-obvious ways. |
+| **Terraform provider** | `hashicorp/google`, `~> 5.x`; `provider "google" { project = var.project_id region = var.region }` style variables (`variables.tf`, `terraform.tfvars.example`). |
+| **Images** | **Artifact Registry** Docker repo (`{region}-docker.pkg.dev/${project_id}/${repo}`), then deploy those images to **Cloud Run** for Alex services. |
+
+When the course guides conflict with InfraGuard’s layout (e.g. guides mention Lambda), implement the **GCP analogue** above and keep env/IAM consistent with `infraguad_ai` unless you deliberately isolate a second GCP project.
+
+**Bootstrap Terraform for GCP**: `terraform/gcp/` (APIs, Artifact Registry, Cloud Storage bucket, Pub/Sub topics, Cloud SQL PostgreSQL + Secret Manager `DATABASE_URL`). Copy `terraform.tfvars.example` → `terraform.tfvars`, then `terraform init` / `apply`. Pair with **`.env.gcp.example`** → `.env` for app env vars (`VERTEX_MODEL_ID`, `DATABASE_URL`, `PLANNER_USE_HTTP_AGENTS`, Cloud Run URLs).
+
 ---
 
 ## Directory Structure
+
+Guide filenames may still use historical labels (`2_sagemaker`, etc.); treat them as **logical steps**—implementation on GCP uses Vertex AI, Cloud Run, and Cloud Storage as specified in each guide.
 
 ```
 alex/
 ├── guides/              # Step-by-step deployment guides (START HERE)
 │   ├── 1_permissions.md
-│   ├── 2_sagemaker.md
+│   ├── 2_sagemaker.md   # → Vertex AI / embeddings (GCP analogue)
 │   ├── 3_ingest.md
 │   ├── 4_researcher.md
 │   ├── 5_database.md
@@ -51,14 +80,14 @@ alex/
 │   ├── architecture.md
 │   └── agent_architecture.md
 │
-├── backend/             # Agent code and Lambda functions
+├── backend/             # Agent code and deployable services
 │   ├── planner/         # Orchestrator agent
 │   ├── tagger/          # Instrument classification agent
 │   ├── reporter/        # Portfolio analysis agent
 │   ├── charter/         # Visualization agent
 │   ├── retirement/      # Retirement projection agent
-│   ├── researcher/      # Market research agent (App Runner)
-│   ├── ingest/          # Document ingestion Lambda
+│   ├── researcher/      # Market research service (typically Cloud Run)
+│   ├── ingest/          # Document ingestion (Cloud Run or Cloud Functions)
 │   ├── database/        # Shared database library
 │   └── api/             # FastAPI backend for frontend
 │
@@ -68,13 +97,14 @@ alex/
 │   └── lib/
 │
 ├── terraform/           # Infrastructure as Code (IMPORTANT: Independent directories)
-│   ├── 2_sagemaker/     # SageMaker embedding endpoint
-│   ├── 3_ingestion/     # S3 Vectors and ingest Lambda
-│   ├── 4_researcher/    # App Runner research service
-│   ├── 5_database/      # Aurora Serverless v2
-│   ├── 6_agents/        # Multi-agent Lambda functions
-│   ├── 7_frontend/      # CloudFront, S3, API Gateway
-│   └── 8_enterprise/    # CloudWatch dashboards and monitoring
+│   ├── gcp/             # GCP bootstrap (Cloud SQL, GCS, Pub/Sub, Artifact Registry, APIs)
+│   ├── 2_sagemaker/     # Historical AWS / swap for Vertex in GCP track
+│   ├── 3_ingestion/     # Cloud Storage + ingest service
+│   ├── 4_researcher/    # Cloud Run (researcher)
+│   ├── 5_database/      # Cloud SQL for PostgreSQL (managed)
+│   ├── 6_agents/        # Cloud Run services / Cloud Functions for agents
+│   ├── 7_frontend/      # Cloud Storage + Cloud CDN, API in front
+│   └── 8_enterprise/    # Cloud Monitoring, logging, alerts
 │
 └── scripts/             # Deployment and local development scripts
     ├── deploy.py        # Frontend deployment
@@ -86,73 +116,85 @@ alex/
 
 ## Course Structure: The 8 Guides
 
-**IMPORTANT:** before working with the student, you MUST read all guides in the guides folder, in the correct order (1-8), to fully understand the project.
+**IMPORTANT:** before working with the student, you MUST read all guides in the guides folder, in the correct order (1-8), to fully understand the project. Where a guide still mentions AWS by name, interpret it through the **GCP mapping** below.
+
+### AWS → Google Cloud (quick mapping)
+
+| Concept (AWS) | Google Cloud analogue |
+|----------------|-------------------------|
+| IAM users / roles | IAM principals, service accounts, predefined/custom roles |
+| Lambda | Cloud Functions and/or **Cloud Run** (prefer Run for containers) |
+| App Runner | **Cloud Run** |
+| Aurora Serverless / RDS | **Cloud SQL** (PostgreSQL), private IP or Cloud SQL connector |
+| S3 | **Cloud Storage** buckets |
+| SQS | **Pub/Sub** topics and subscriptions |
+| API Gateway | **API Gateway**, or HTTPS Load Balancer + Cloud Run |
+| SageMaker | **Vertex AI** (endpoints, predictions, embeddings) |
+| Bedrock | **Vertex AI** (Gemini and other models) via LiteLLM or native SDKs |
+| CloudFront | **Cloud CDN** (often fronting Cloud Storage or Load Balancer) |
+| CloudWatch | **Cloud Logging** + **Cloud Monitoring** |
+| Secrets Manager | **Secret Manager** |
+| EventBridge | **Cloud Scheduler** + Pub/Sub |
 
 ### Week 3: Research Infrastructure
 
 **Day 3 - Foundations**
-- **Guide 1: AWS Permissions** (1_permissions.md)
-  - Set up IAM permissions for Alex project
-  - Create AlexAccess group with required policies
-  - Configure AWS CLI and credentials
+- **Guide 1: GCP Permissions** (`1_permissions.md`)
+  - Set up IAM for the Alex project
+  - Service accounts and least-privilege roles
+  - `gcloud` CLI and application-default credentials
 
-- **Guide 2: SageMaker Deployment** (2_sagemaker.md)
-  - Deploy SageMaker Serverless endpoint for embeddings
-  - Use HuggingFace all-MiniLM-L6-v2 model
+- **Guide 2: Embeddings / Vertex AI** (`2_sagemaker.md`)
+  - Deploy a managed embedding endpoint (Vertex AI or HTTP service on Cloud Run)
   - Test embedding generation
-  - Understand serverless vs always-on endpoints
+  - Understand scale-to-zero vs always-on tradeoffs
 
 **Day 4 - Vector Storage**
-- **Guide 3: Ingestion Pipeline** (3_ingest.md)
-  - Create S3 Vectors bucket (90% cost savings!)
-  - Deploy Lambda function for document ingestion
-  - Set up API Gateway with API key auth
+- **Guide 3: Ingestion Pipeline** (`3_ingest.md`)
+  - Cloud Storage for documents and indexes (per guide)
+  - Ingestion as Cloud Run or Cloud Functions
+  - Secure HTTP API (API key or IAM)
   - Test document storage and search
 
 **Day 5 - Research Agent**
-- **Guide 4: Researcher Agent** (4_researcher.md)
-  - Deploy autonomous research agent on App Runner
-  - Use AWS Bedrock with Nova Pro model
-  - Integrate Playwright MCP server for web browsing
-  - Set up EventBridge scheduler (optional)
-  - **IMPORTANT**: Update `backend/researcher/server.py` with your region and model
+- **Guide 4: Researcher Agent** (`4_researcher.md`)
+  - Deploy autonomous research agent on **Cloud Run**
+  - Use Vertex AI (Gemini or assigned model) for LLM calls
+  - Integrate Playwright MCP server for web browsing where applicable
+  - Cloud Scheduler (optional)
+  - **IMPORTANT**: Keep region and model in config (`backend/researcher/server.py` or env)—no hardcoded secrets
 
 ### Week 4: Portfolio Management Platform
 
 **Day 1 - Database**
-- **Guide 5: Database & Infrastructure** (5_database.md)
-  - Deploy Aurora Serverless v2 PostgreSQL
-  - Enable Data API (no VPC complexity!)
-  - Create database schema
-  - Load seed data (22 ETFs)
-  - Set up shared database library
+- **Guide 5: Database & Infrastructure** (`5_database.md`)
+  - **Cloud SQL** for PostgreSQL (managed instance—no EC2 DB VMs)
+  - Connect via Cloud SQL connector / private IP as the guide specifies
+  - Create database schema, load seed data (22 ETFs)
+  - Shared database library
 
 **Day 2 - Agent Orchestra**
-- **Guide 6: AI Agent Orchestra** (6_agents.md)
-  - Deploy 5 Lambda agents (Planner, Tagger, Reporter, Charter, Retirement)
-  - Set up SQS queue for orchestration
+- **Guide 6: AI Agent Orchestra** (`6_agents.md`)
+  - Deploy agents as **Cloud Run services** (or Cloud Functions for thin handlers)
+  - **Pub/Sub** for orchestration
   - Configure agent collaboration patterns
   - Test local and remote execution
-  - Implement parallel agent processing
 
 **Day 3 - Frontend**
-- **Guide 7: Frontend & API** (7_frontend.md)
-  - Set up Clerk authentication
-  - Deploy NextJS React frontend
-  - Create FastAPI backend on Lambda
-  - Configure CloudFront CDN
+- **Guide 7: Frontend & API** (`7_frontend.md`)
+  - Clerk authentication
+  - NextJS static assets on Cloud Storage + Cloud CDN
+  - FastAPI on Cloud Run (or Cloud Functions for API—guide-dependent)
   - Test portfolio management and AI analysis
 
 **Day 4 - Enterprise Features**
-- **Guide 8: Enterprise Grade** (8_enterprise.md)
-  - Implement scalability configurations
-  - Add security layers (WAF, VPC endpoints, GuardDuty)
-  - Set up CloudWatch dashboards and alarms
-  - Implement guardrails and validation
-  - Add explainability features
-  - Configure LangFuse observability
+- **Guide 8: Enterprise Grade** (`8_enterprise.md`)
+  - Autoscaling and concurrency (Cloud Run settings)
+  - Security (Cloud Armor, VPC-SC, IAM—per guide)
+  - Dashboards and alerts in Cloud Monitoring
+  - Guardrails, validation, LangFuse or equivalent observability
 
-For context, in prior weeks the students learned how to deploy to AWS, the key AWS services like Lambda and App Runner, and using Clerk for user management (needs NextJS to use Pages Router).
+For context, students may have prior exposure to deploying containers and using Clerk with NextJS (Pages Router).
 
 ---
 
@@ -187,7 +229,7 @@ Common mistakes to avoid:
 
 **Instead, follow this process:**
 1. **Reproduce the issue** - Ask for exact error messages, logs, commands
-2. **Identify root cause** - Use CloudWatch logs, AWS Console, error traces
+2. **Identify root cause** - Use Cloud Logging, Google Cloud Console, error traces
 3. **Verify understanding** - Explain what you think is happening and confirm with student
 4. **Propose minimal fix** - Change one thing at a time
 5. **Test and verify** - Confirm the fix works before moving on
@@ -196,62 +238,53 @@ Common mistakes to avoid:
 
 Before writing any code, check these common issues:
 
-**Docker Desktop Not Running** (Most common with `package_docker.py`)
-- The script will fail with a generic uv warning about nested projects
-- The real issue is Docker isn't running
-- Students often get distracted by the uv warning (this was recently fixed in the script)
+**Docker Desktop Not Running** (common when building container images for Cloud Run)
+- Packaging or `docker build` fails
 - **Always ask**: "Is Docker Desktop running?"
+- **Check**: `docker ps` succeeds
 
-**AWS Permissions Issues** (Most common overall)
-- Missing IAM policies for specific AWS services
-- Region-specific permissions (especially for Bedrock inference profiles)
-- Inference profiles require permissions for MULTIPLE regions
-- **Check**: IAM policies, AWS region settings, Bedrock model access
+**GCP IAM / permissions**
+- Missing roles on the service account (Vertex AI User, Cloud Run Admin, Cloud SQL Client, etc.—exact set per guide)
+- APIs not enabled on the project (Vertex AI API, Cloud Run API, Pub/Sub API, …)
 
 **Terraform Variables Not Set**
-- Each terraform directory needs its `terraform.tfvars` file configured
-- Missing or incorrect variables cause cryptic errors
-- **Check**: Does `terraform.tfvars` exist? Are all required variables set?
+- Each terraform directory needs its `terraform.tfvars` (or equivalent) configured
+- Missing variables cause cryptic errors
+- **Check**: Does `terraform.tfvars` exist? Is `project_id` / region correct?
 
-**AWS Region Mismatches**
-- Bedrock models may only be available in specific regions
-- Nova Pro requires inference profiles
-- Cross-region resource access may need models to have been approved in Bedrock in multiple regions
-- **Check**: Region consistency across configuration files
+**Region mismatches**
+- Vertex AI models and Cloud Run regions must be consistent where services call each other
+- **Check**: Same region in `.env`, terraform, and Cloud Run service settings
 
-**Model Access Not Granted**
-- AWS Bedrock requires explicit model access requests
-- Nova Pro is the recommended model (Claude Sonnet has strict rate limits)
-- Access is per-region; inference profiles may require multiple regions to have access
-- **Check**: Bedrock console → Model access
+**Model / quota issues**
+- Vertex AI may require enabling APIs and sufficient quota
+- **Check**: Cloud Console → APIs & Services, and Vertex AI model availability in region
 
-### 4. **Current Model Strategy**
+### 4. **Model strategy (Vertex AI / LiteLLM)**
 
-**Use Nova Pro, not Claude Sonnet**
-- Nova Pro (`us.amazon.nova-pro-v1:0` or `eu.amazon.nova-pro-v1:0`) is the recommended model
-- Requires inference profiles for cross-region access
-- Claude Sonnet has too strict rate limits for this project
-- Students need to request access in AWS Bedrock console, and potentially for multiple regions
+Use the **course-assigned model** (often Gemini via Vertex AI). Configure through environment variables and LiteLLM or the Vertex SDK as the codebase expects—avoid hardcoding regions or model IDs.
+
+If the repo still shows Bedrock examples, translate to Vertex: LiteLLM supports `vertex_ai/` model strings; set `VERTEXAI_PROJECT`, `VERTEXAI_LOCATION`, and credentials per [LiteLLM Vertex docs](https://docs.litellm.ai/docs/providers/vertex).
 
 ### 5. **Testing Approach**
 
-Each agent directory has two test files:
-- `test_simple.py` - Local testing with mocks (uses `MOCK_LAMBDAS=true`)
-- `test_full.py` - AWS deployment testing (actual Lambda invocations)
+Each agent directory may have:
+- `test_simple.py` - Local testing with mocks
+- `test_full.py` - Deployment testing (actual Cloud Run / HTTP calls)
 
 Students should:
 1. Test locally first with `test_simple.py`
-2. Deploy with terraform/packaging
+2. Deploy with terraform / `gcloud` / CI as the guide says
 3. Test deployment with `test_full.py`
 
 ### 6. **Help Students Help Themselves**
 
 Encourage students to:
-- Read error messages carefully (especially CloudWatch logs)
-- Check AWS Console to verify resources exist
-- Use `terraform output` to see deployed resource details
-- Test incrementally (don't deploy everything at once)
-- Keep AWS costs in mind (remind them to destroy when not actively working)
+- Read error messages carefully (Cloud Logging > Error Reporting)
+- Verify resources in Google Cloud Console
+- Use `terraform output` for URIs and connection strings
+- Test incrementally
+- Shut down or scale down costly resources when not in use (Cloud SQL, always-on Run min instances)
 
 ---
 
@@ -259,59 +292,44 @@ Encourage students to:
 
 ### Independent Directory Architecture
 
-Each terraform directory (2_sagemaker, 3_ingestion, etc.) is **independent** with:
-- Its own local state file (`terraform.tfstate`)
-- Its own `terraform.tfvars` configuration
-- No dependencies on other terraform directories
-
-**This is intentional** for educational purposes:
-- Students can deploy incrementally, guide by guide
-- State files are local (simpler than remote S3 state)
-- Each part can be destroyed independently
-- No complex state bucket setup needed
-- Infrastructure can be destroyed step by step
+Each terraform subdirectory is **independent** with:
+- Its own local state file (`terraform.tfstate`) unless you adopt remote state later
+- Its own variable files
+- No hard dependencies between directories (same educational pattern as before)
 
 ### Critical Requirements
 
-**⚠️ Students MUST configure `terraform.tfvars` in each directory before running terraform apply**
+**⚠️ Students MUST configure variables (e.g. `terraform.tfvars`) before `terraform apply`**
 
-Common pattern is to use the Cursor File Explorer to copy terraform.tfvars.example to terraform.tfvars and then change the variables in each directory.
+If variables are missing:
+- Defaults may point at the wrong project or region
+- APIs may not be enabled; applies fail with permission or API errors
 
-If `terraform.tfvars` is missing or misconfigured:
-- Terraform will use default values (often wrong)
-- Resources may fail to create with cryptic errors
-- Cross-service connections will break
+### Terraform provider note
 
-### Terraform State Management
-
-- State files are `.gitignored` automatically
-- Local state means no S3 bucket needed
-- Students can `terraform destroy` each directory independently
-- If a student loses state, they may need to import existing resources or recreate
+Use the **Google** provider (`google` / `google-beta`) for GCP resources—do not mix in AWS resources unless intentionally hybrid.
 
 ## Agent strategy - background on OpenAI Agents SDK
 
 Each Agent subdirectory has a common structure with idiomatic patterns.
 
-1. `lambda_handler.py` for the lambda function and running the agent
+1. Entrypoint for the deployed service (historically `lambda_handler.py`—on GCP this may be FastAPI/Cloud Run `main` or a function entry)
 2. `agent.py` for the Agent creation and code
 3. `templates.py` for prompts
 
-Alex uses OpenAI Agents SDK. Be sure to always use the latest, idiomatic APIs for OpenAI Agents SDK, recognizing that it is a new framework. While this is already installed in all uv projects, do note that the correct package name is `openai-agents` not `agents`. So if ever creating a new project, you would do `uv add openai-agents` followed by this import statement in the code `from agents import Agent, Runner, trace`.
+Alex uses OpenAI Agents SDK. The correct package name is `openai-agents` not `agents`: `uv add openai-agents`, then `from agents import Agent, Runner, trace`.
 
-Alex makes standard use of LiteLLM to connect to Bedrock:
+With LiteLLM on Vertex AI, model setup typically follows:
 
-`model = LitellmModel(model=f"bedrock/{model_id}")`
+`model = LitellmModel(model="vertex_ai/<model_id>")`
 
-Structured outputs and Tool calling is frequently used, but due to a current limitation with LiteLLM and Bedrock, the same Agent cannot use both Structured Outputs and Tool calling. So each Agent implementation either uses Structured Outputs OR uses Tools, never both.
+(Structured outputs vs tools: same constraint as in the original course—one mode per agent if LiteLLM + provider limits apply.)
 
-This is the standard idiomatic approach used in lambda_handler:
+Example pattern (conceptually unchanged from AWS Bedrock version):
 
 ```python
-    # Create agent - imported from agents.py
     model, tools, task = create_agent(job_id, portfolio_data, user_preferences, db)
-    
-    # Run agent
+
     with trace("Retirement Agent"):
         agent = Agent(
             name="Retirement Specialist",
@@ -319,193 +337,113 @@ This is the standard idiomatic approach used in lambda_handler:
             model=model,
             tools=tools
         )
-        
+
         result = await Runner.run(
             agent,
             input=task,
-            max_turns=20
+            max_turns=20,
         )
 
         response = result.final_output
 ```
 
-In cases where a Tool needs to know which user is logged in to make the right database call, we use a standard, idomatic approach for passing context in to the tool which works very well and is recommended by OpenAI Agents SDK. 
+Context for tools:
 
 ```python
-
 with trace("Reporter Agent"):
-        agent = Agent[ReporterContext](  # Specify the context type
+        agent = Agent[ReporterContext](
             name="Report Writer", instructions=REPORTER_INSTRUCTIONS, model=model, tools=tools
         )
 
         result = await Runner.run(
             agent,
             input=task,
-            context=context,  # Pass the context
+            context=context,
             max_turns=10,
         )
 
         response = result.final_output
-
-```
-And later:
-```python
-@function_tool
-async def get_market_insights(
-    wrapper: RunContextWrapper[ReporterContext], symbols: List[str]
-) -> str:
-...
 ```
 
-IMPORTANT: when using Bedrock through LiteLLM, LiteLLM needs this environment variable set:   
-`os.environ["AWS_REGION_NAME"] = bedrock_region`  
-This is confusing as other services sometimes expect `"AWS_REGION"` or `"DEFAULT_AWS_REGION"`. But LiteLLM needs `AWS_REGION_NAME` as documented here: https://docs.litellm.ai/docs/providers/bedrock.
-
+Set **Vertex / LiteLLM** environment variables per project docs (e.g. `GOOGLE_APPLICATION_CREDENTIALS` or ADC, `VERTEXAI_PROJECT`, `VERTEXAI_LOCATION`)—not `AWS_REGION_NAME`.
 
 ---
 
 ## Common Issues and Troubleshooting
 
-The most common issues relate to AWS region choices! Check environment variables, terraform settings (everything should propagate from tfvars).
+Most issues are **permissions, APIs, regions, or secrets**. Align `.env`, terraform, and Cloud Run service configuration.
 
-### Issue 1: `package_docker.py` Fails
+### Issue 1: Docker / image build fails
 
-**Symptoms**: Script fails with uv warning about nested projects and perhaps an error message
+**Symptoms**: `docker build` or packaging scripts fail
 
-**Root Cause (common)**: Docker Desktop is not running or a Docker mounts denied issue
+**Diagnosis**: Docker not running; wrong platform for Cloud Run (`linux/amd64` is typical).
 
-**Diagnosis**:
-1. Ask: "Is Docker Desktop running?"
-2. Check: Can they run `docker ps` successfully?
-3. Recent fix: The script now gives better error messages, but older versions were misleading
+**Solution**: Start Docker; use Cloud Run–compatible base images and platforms per guide.
 
-**Solution**: Start Docker Desktop, wait for it to fully initialize, then retry
+### Issue 2: Vertex AI / model errors
 
-**If the issue is a Mounts Denied error**: It fails to mount the /tmp directory into Docker as it doesn't have access to it. Going to Docker Desktop app, and adding the directory mentioned in the error to the shared paths (Settings -> Resources -> File Sharing) solved the problem for a student.
+**Symptoms**: 403, quota, or "model not found"
 
-**Not the solution**: Changing uv project configurations (this is a red herring)
+**Diagnosis**: API disabled, wrong region, billing, or IAM.
 
-### Issue 2: Region issues and Bedrock Model Access Denied
+**Solution**: Enable Vertex AI API; assign Vertex AI User where needed; confirm model availability in region.
 
-**Symptoms**: "Access denied" or "Model not found" errors when running agents
+### Issue 3: Terraform apply fails
 
-**Root Cause**: Model access not granted in Bedrock, or wrong region
+**Symptoms**: Resource creation errors, wrong project
 
-**Diagnosis**:
-1. Which model are they trying to use?
-2. Which region is their code running in?
-3. Have they requested model access in Bedrock console?
-4. For inference profiles: Do they have permissions for multiple regions?
-5. Are the right environment variables being set? LiteLLM needs `AWS_REGION_NAME`. Check that nothing is being hardcoded in the code, and that tfvars are set right. Add logging to confirm which region is being used.
+**Root Cause**: Missing `terraform.tfvars`, wrong `project_id`, APIs not enabled
 
-**Solution**:
-1. Go to Bedrock console in the correct region
-2. Click "Model access"
-3. Request access to Nova Pro
-4. For cross-region: Set up inference profiles with multi-region permissions
+**Solution**: Fill variables; run `gcloud services enable ...` as prerequisites list; verify project in `gcloud config get-value project`
 
-### Issue 3: Terraform Apply Fails
+### Issue 4: Cloud Run service errors
 
-**Symptoms**: Resources fail to create, dependency errors, ARN not found
+**Symptoms**: 500s, timeouts, import errors
 
-**Root Cause**: `terraform.tfvars` not configured, or values from previous guides not set
+**Diagnosis**: Cloud Logging for the revision; missing env vars; Secret Manager binding; VPC connector for Cloud SQL
 
-**Diagnosis**:
-1. Does `terraform.tfvars` exist in this directory?
-2. Are all required variables set (check `terraform.tfvars.example`)?
-3. For later guides: Do they have output values from earlier guides?
-4. Run `terraform output` in previous directories to get required ARNs
+**Solution**: Fix Dockerfile and env; use Cloud SQL Auth Proxy / connector pattern from guide
 
-**Solution**:
-1. Copy `terraform.tfvars.example` to `terraform.tfvars`
-2. Fill in all required values
-3. Get ARNs from previous terraform outputs: `cd terraform/X_previous && terraform output`
-4. Update `.env` file with values for Python scripts
+### Issue 5: Cloud SQL connection fails
 
-### Issue 4: Lambda Function Failures
+**Symptoms**: Connection refused, auth errors
 
-**Symptoms**: 500 errors, timeout errors, "Module not found" errors
+**Diagnosis**: Instance not ready; wrong connection name; service account lacks **Cloud SQL Client**
 
-**Root Cause**: Package not built correctly, environment variables missing, or IAM permissions
-
-**Diagnosis**:
-1. Check CloudWatch logs: `aws logs tail /aws/lambda/alex-{agent-name} --follow`
-2. Check Lambda environment variables in AWS Console
-3. Check IAM role has required permissions
-4. Was the Lambda package built with Docker for linux/amd64?
-
-**Solution**:
-1. For packaging: Re-run `package_docker.py` with Docker running
-2. For env vars: Verify in Lambda console or `terraform.tfvars`
-3. For permissions: Check IAM role policy in terraform
-
-### Issue 5: Aurora Database Connection Fails
-
-**Symptoms**: "Cluster not found", "Secret not found", Data API errors
-
-**Root Cause**: Database not fully initialized, wrong ARNs, or Data API not enabled
-
-**Diagnosis**:
-1. Check cluster status: `aws rds describe-db-clusters`
-2. Verify Data API is enabled (should show `EnableHttpEndpoint: true`)
-3. Check ARNs in environment variables match actual resources
-4. Database may still be initializing (takes 10-15 minutes)
-
-**Solution**:
-1. Wait for cluster to reach "available" status
-2. Verify Data API is enabled in RDS console
-3. Run `terraform output` in `5_database` to get correct ARNs
-4. Update environment variables with actual ARNs
+**Solution**: Wait for instance; use connection string format `project:region:instance`; verify IAM and networking (private IP / connector)
 
 ---
 
 ## Technical Architecture Quick Reference
 
-### Core Services by Guide
+### Core Services by Guide (GCP)
 
-**Guides 1-2**: Foundations
-- IAM permissions
-- SageMaker Serverless endpoint (embeddings)
+**Guides 1-2**: Foundations  
+- IAM, APIs, Vertex AI for embeddings
 
-**Guide 3**: Vector Storage
-- S3 Vectors bucket and index
-- Lambda ingest function
-- API Gateway with API key
+**Guide 3**: Vector storage  
+- Cloud Storage; ingestion on Cloud Run or Cloud Functions
 
-**Guide 4**: Research Agent
-- App Runner service (Researcher)
-- ECR repository
-- EventBridge scheduler (optional)
+**Guide 4**: Research agent  
+- **Cloud Run** (researcher); Artifact Registry for images
 
-**Guide 5**: Database
-- Aurora Serverless v2 PostgreSQL
-- Data API enabled
-- Secrets Manager for credentials
-- Database schema and seed data - **IMPORTANT** be sure to read the database schema
+**Guide 5**: Database  
+- **Cloud SQL** PostgreSQL; Secret Manager for passwords
 
-**Guide 6**: Agent Orchestra (The Big One)
-- 5 Lambda functions: Planner, Tagger, Reporter, Charter, Retirement
-- Each lambda function is implemented using OpenAI Agents SDK with simple, idiomatic code. Review an existing implementation for details.
-- SQS queue for orchestration
-- S3 bucket for Lambda packages (>50MB)
-- Cross-service IAM permissions
+**Guide 6**: Agent orchestra  
+- Cloud Run (and/or Cloud Functions); **Pub/Sub** orchestration
 
-**Guide 7**: Frontend
-- NextJS static site on S3
-- CloudFront CDN
-- API Gateway + Lambda backend
-- Clerk authentication
+**Guide 7**: Frontend  
+- Cloud Storage + Cloud CDN; API on Cloud Run; Clerk
 
-**Guide 8**: Enterprise
-- CloudWatch dashboards
-- Alarms and monitoring
-- LangFuse observability
-- Enhanced logging
+**Guide 8**: Enterprise  
+- Cloud Monitoring, alerting, security products per guide
 
 ### Agent Collaboration Pattern
 
 ```
-User Request → SQS Queue → Planner (Orchestrator)
+User Request → Pub/Sub → Planner (Orchestrator on Cloud Run)
                             ├─→ Tagger (if needed)
                             ├─→ Reporter ──┐
                             ├─→ Charter ───┼─→ Results → Database
@@ -514,10 +452,10 @@ User Request → SQS Queue → Planner (Orchestrator)
 
 ### Cost Management
 
-**Cost optimization**:
-- Destroy Aurora when not actively working (biggest savings)
-- Use `terraform destroy` in each directory
-- Monitor costs in AWS Cost Explorer
+- Pause or delete Cloud SQL when not needed (largest recurring cost)
+- Cloud Run scale-to-zero where possible; avoid unnecessary min instances
+- Use `terraform destroy` per directory when tearing down labs
+- Monitor in **Billing** → Reports and budgets
 
 ### Cleanup Process
 
@@ -526,7 +464,7 @@ User Request → SQS Queue → Planner (Orchestrator)
 cd terraform/8_enterprise && terraform destroy
 cd terraform/7_frontend && terraform destroy
 cd terraform/6_agents && terraform destroy
-cd terraform/5_database && terraform destroy  # Biggest cost savings
+cd terraform/5_database && terraform destroy   # Often largest savings
 cd terraform/4_researcher && terraform destroy
 cd terraform/3_ingestion && terraform destroy
 cd terraform/2_sagemaker && terraform destroy
@@ -537,14 +475,14 @@ cd terraform/2_sagemaker && terraform destroy
 ## Key Files Students Modify
 
 ### Configuration Files
-- `.env` - Root environment variables (add values as guides progress)
+- `.env` - Root environment variables
 - `frontend/.env.local` - Frontend Clerk configuration
-- `terraform/*/terraform.tfvars` - Each terraform directory (copy from .example)
+- `terraform/*/terraform.tfvars` - Each terraform directory (copy from `.example` if present)
 
 ### Code Students May Need to Update
-- `backend/researcher/server.py` - Region and model configuration (Guide 4) - but this should come from variables and shouldn't need code changes
-- Agent templates in `backend/*/templates.py` - For customization
-- Frontend pages for UI modifications
+- `backend/researcher/server.py` - Region and model via environment variables
+- Agent templates in `backend/*/templates.py`
+- Frontend pages for UI changes
 
 ---
 
@@ -552,35 +490,23 @@ cd terraform/2_sagemaker && terraform destroy
 
 ### For Students
 
-If you're stuck:
+1. **Follow the guide** for the GCP steps and troubleshooting
+2. **Use Cloud Logging** and Error Reporting for server-side errors
+3. **Verify** APIs enabled, IAM roles, and region consistency
+4. **Contact the instructor** (Udemy / email as in course materials)
 
-1. **Check the guide carefully** - Most steps have troubleshooting sections
-2. **Review error messages** - Look at CloudWatch logs, not just terminal output
-3. **Verify prerequisites** - Is Docker running? Are permissions set? Is terraform.tfvars configured?
-4. **Contact the instructor**:
-   - **Post a question in Udemy** - Include your guide number, error message, and what you've tried
-   - **Email Ed Donner**: ed@edwarddonner.com
-
-When asking for help, include:
-- Which guide/day you're on
-- Exact error message (copy/paste, don't paraphrase)
-- What command you ran
-- Relevant CloudWatch logs if available
-- What you've already tried
+When asking for help, include: guide number, exact error text, command you ran, relevant log excerpts, what you tried.
 
 ### For Claude Code (AI Assistant)
 
-When helping students:
+0. **Prepare** - Read guides; apply GCP mapping where text still says AWS
+1. **Establish context** - Guide, goal, what is deployed
+2. **Get error details** - Logs, traces, config
+3. **Diagnose first**
+4. **Minimal fixes**
+5. **Verify** with the student
 
-0. **Prepare** - Read all the guides to be fully briefed.
-1. **Establish context** - Which guide? What's the goal?
-2. **Get error details** - Actual messages, logs, console output
-3. **Diagnose first** - Don't write code before understanding the problem
-4. **Think incrementally** - One change at a time
-5. **Verify understanding** - Explain what you think is wrong before fixing
-6. **Keep it simple** - Avoid over-engineering solutions
-
-**Remember**: Students are learning. The goal is to help them understand what went wrong and how to fix it, not just to make the error go away.
+**Remember**: Students are learning. Explain root cause, not only the fix.
 
 ---
 
@@ -588,8 +514,8 @@ When helping students:
 - Instructor: Ed Donner
 - Platform: Udemy
 - Course: AI in Production
-- Project: "Alex" - Capstone for Weeks 3-4
+- Project: "Alex" - Capstone for Weeks 3-4 (this document: **Google Cloud** variant)
 
 ---
 
-*This guide was created to help AI assistants (like Claude Code) effectively support students through the Alex project. Last updated: October 2025*
+*This guide helps AI assistants support students on the Alex project. GCP / Cloud Run variant. Last updated: April 2026*

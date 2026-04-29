@@ -2,10 +2,11 @@
 Database models and query builders
 """
 
-from typing import Dict, List, Optional, Any
+import os
+from typing import Dict, List, Optional, Any, Union
 from datetime import datetime, date
 from decimal import Decimal
-from .client import DataAPIClient
+from .client import DataAPIClient, get_database_client
 from .schemas import (
     InstrumentCreate, UserCreate, AccountCreate, 
     PositionCreate, JobCreate, JobUpdate
@@ -17,7 +18,7 @@ class BaseModel:
     
     table_name = None
     
-    def __init__(self, db: DataAPIClient):
+    def __init__(self, db: Union[DataAPIClient, Any]):
         self.db = db
         if not self.table_name:
             raise ValueError("table_name must be defined")
@@ -302,7 +303,10 @@ class Database:
     def __init__(self, cluster_arn: str = None, secret_arn: str = None,
                  database: str = None, region: str = None):
         """Initialize database with all model classes"""
-        self.client = DataAPIClient(cluster_arn, secret_arn, database, region)
+        if os.environ.get("DATABASE_URL"):
+            self.client = get_database_client()
+        else:
+            self.client = DataAPIClient(cluster_arn, secret_arn, database, region)
         
         # Initialize all models
         self.users = Users(self.client)

@@ -9,6 +9,7 @@ import json
 import boto3
 from botocore.exceptions import ClientError
 from src.schemas import InstrumentCreate
+from src.client import get_database_client
 from pydantic import ValidationError
 from dotenv import load_dotenv
 
@@ -21,11 +22,13 @@ secret_arn = os.environ.get("AURORA_SECRET_ARN")
 database = os.environ.get("AURORA_DATABASE", "alex")
 region = os.environ.get("DEFAULT_AWS_REGION", "us-east-1")
 
-if not cluster_arn or not secret_arn:
-    print("❌ Missing AURORA_CLUSTER_ARN or AURORA_SECRET_ARN in .env file")
+database_url = os.environ.get("DATABASE_URL")
+if not database_url and (not cluster_arn or not secret_arn):
+    print("❌ Set DATABASE_URL (GCP/Postgres) or AURORA_CLUSTER_ARN and AURORA_SECRET_ARN in .env")
     exit(1)
 
-client = boto3.client("rds-data", region_name=region)
+client = boto3.client("rds-data", region_name=region) if not database_url else None
+db_client = get_database_client()
 
 # Define popular ETF instruments with realistic allocation data
 # All percentages should sum to 100 for each allocation type
@@ -378,37 +381,35 @@ def insert_instrument(instrument_data):
             updated_at = NOW()
     """
 
+    params = [
+        {"name": "symbol", "value": {"stringValue": validated["symbol"]}},
+        {"name": "name", "value": {"stringValue": validated["name"]}},
+        {"name": "instrument_type", "value": {"stringValue": validated["instrument_type"]}},
+        {
+            "name": "current_price",
+            "value": {"stringValue": str(validated.get("current_price", 0))},
+        },
+        {
+            "name": "allocation_regions",
+            "value": {"stringValue": json.dumps(validated["allocation_regions"])},
+        },
+        {
+            "name": "allocation_sectors",
+            "value": {"stringValue": json.dumps(validated["allocation_sectors"])},
+        },
+        {
+            "name": "allocation_asset_class",
+            "value": {"stringValue": json.dumps(validated["allocation_asset_class"])},
+        },
+    ]
     try:
-        response = client.execute_statement(
-            resourceArn=cluster_arn,
-            secretArn=secret_arn,
-            database=database,
-            sql=sql,
-            parameters=[
-                {"name": "symbol", "value": {"stringValue": validated["symbol"]}},
-                {"name": "name", "value": {"stringValue": validated["name"]}},
-                {"name": "instrument_type", "value": {"stringValue": validated["instrument_type"]}},
-                {
-                    "name": "current_price",
-                    "value": {"stringValue": str(validated.get("current_price", 0))},
-                },
-                {
-                    "name": "allocation_regions",
-                    "value": {"stringValue": json.dumps(validated["allocation_regions"])},
-                },
-                {
-                    "name": "allocation_sectors",
-                    "value": {"stringValue": json.dumps(validated["allocation_sectors"])},
-                },
-                {
-                    "name": "allocation_asset_class",
-                    "value": {"stringValue": json.dumps(validated["allocation_asset_class"])},
-                },
-            ],
-        )
+        db_client.execute(sql, params)
         return True
     except ClientError as e:
         print(f"    ❌ Error: {e.response['Error']['Message'][:100]}")
+        return False
+    except Exception as e:
+        print(f"    ❌ Error: {str(e)[:100]}")
         return False
 
 
@@ -467,30 +468,21 @@ def main():
     # Verify by querying
     print("\n🔍 Verifying data...")
     try:
-        response = client.execute_statement(
-            resourceArn=cluster_arn,
-            secretArn=secret_arn,
-            database=database,
-            sql="SELECT COUNT(*) as count FROM instruments",
-        )
-        count = response["records"][0][0]["longValue"]
+        rows = db_client.query("SELECT COUNT(*) AS cnt FROM instruments", [])
+        count = int(rows[0]["cnt"]) if rows else 0
         print(f"  Database now contains {count} instruments")
 
-        # Show a sample
-        response = client.execute_statement(
-            resourceArn=cluster_arn,
-            secretArn=secret_arn,
-            database=database,
-            sql="SELECT symbol, name FROM instruments ORDER BY symbol LIMIT 5",
+        sample = db_client.query(
+            "SELECT symbol, name FROM instruments ORDER BY symbol LIMIT 5", []
         )
 
         print("\n  Sample instruments:")
-        for record in response["records"]:
-            symbol = record[0]["stringValue"]
-            name = record[1]["stringValue"]
-            print(f"    - {symbol}: {name}")
+        for row in sample:
+            print(f"    - {row['symbol']}: {row['name']}")
 
     except ClientError as e:
+        print(f"  ❌ Error verifying: {e}")
+    except Exception as e:
         print(f"  ❌ Error verifying: {e}")
 
     print("\n✅ Seed data loaded successfully!")

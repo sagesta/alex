@@ -10,7 +10,7 @@ from typing import Dict, Any
 from datetime import datetime
 
 # No tools needed - simplified agent
-from agents.extensions.models.litellm_model import LitellmModel
+from src.litellm_model_factory import create_litellm_model
 
 logger = logging.getLogger()
 
@@ -238,13 +238,7 @@ def create_agent(
 ):
     """Create the retirement agent with tools and context."""
 
-    # Get model configuration
-    model_id = os.getenv("BEDROCK_MODEL_ID", "us.anthropic.claude-3-7-sonnet-20250219-v1:0")
-    # Set region for LiteLLM Bedrock calls
-    bedrock_region = os.getenv("BEDROCK_REGION", "us-west-2")
-    os.environ["AWS_REGION_NAME"] = bedrock_region
-
-    model = LitellmModel(model=f"bedrock/{model_id}")
+    model = create_litellm_model()
 
     # Extract user preferences
     years_until_retirement = user_preferences.get("years_until_retirement", 30)

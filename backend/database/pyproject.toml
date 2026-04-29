@@ -5,6 +5,9 @@ description = "Database package for Alex Financial Planner with Aurora Data API"
 requires-python = ">=3.12"
 dependencies = [
     "boto3>=1.40.8",
+    "openai-agents[litellm]>=0.3.0",
+    "psycopg[binary]>=3.2.0",
+    "psycopg-pool>=3.2.0",
     "pydantic>=2.11.7",
     "python-dotenv>=1.1.1",
 ]

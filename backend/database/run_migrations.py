@@ -18,10 +18,14 @@ secret_arn = os.environ.get("AURORA_SECRET_ARN")
 database = os.environ.get("AURORA_DATABASE", "alex")
 region = os.environ.get("DEFAULT_AWS_REGION", "us-east-1")
 
-if not cluster_arn or not secret_arn:
-    raise ValueError("Missing AURORA_CLUSTER_ARN or AURORA_SECRET_ARN in environment variables")
-
-client = boto3.client("rds-data", region_name=region)
+database_url = os.environ.get("DATABASE_URL")
+client = None
+if not database_url:
+    if not cluster_arn or not secret_arn:
+        raise ValueError(
+            "Set DATABASE_URL (GCP / Postgres) or AURORA_CLUSTER_ARN and AURORA_SECRET_ARN (AWS)"
+        )
+    client = boto3.client("rds-data", region_name=region)
 
 # Read migration file
 with open("migrations/001_schema.sql") as f:
@@ -142,14 +146,32 @@ for i, stmt in enumerate(statements, 1):
     print(f"    {first_line}...")
 
     try:
-        response = client.execute_statement(
-            resourceArn=cluster_arn, secretArn=secret_arn, database=database, sql=stmt
-        )
-        print(f"    ✅ Success")
-        success_count += 1
+        if database_url:
+            import psycopg
+
+            with psycopg.connect(database_url) as conn:
+                conn.autocommit = True
+                with conn.cursor() as cur:
+                    cur.execute(stmt)
+            print(f"    ✅ Success")
+            success_count += 1
+        else:
+            client.execute_statement(
+                resourceArn=cluster_arn, secretArn=secret_arn, database=database, sql=stmt
+            )
+            print(f"    ✅ Success")
+            success_count += 1
 
     except ClientError as e:
         error_msg = e.response["Error"]["Message"]
+        if "already exists" in error_msg.lower():
+            print(f"    ⚠️  Already exists (skipping)")
+            success_count += 1
+        else:
+            print(f"    ❌ Error: {error_msg[:100]}")
+            error_count += 1
+    except Exception as e:
+        error_msg = str(e)
         if "already exists" in error_msg.lower():
             print(f"    ⚠️  Already exists (skipping)")
             success_count += 1

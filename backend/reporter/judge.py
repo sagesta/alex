@@ -2,7 +2,7 @@ from agents import Agent, Runner
 from pydantic import BaseModel, Field
 import os
 import logging
-from agents.extensions.models.litellm_model import LitellmModel
+from src.litellm_model_factory import create_litellm_model
 
 logger = logging.getLogger()
 
@@ -17,15 +17,7 @@ class Evaluation(BaseModel):
 
 
 async def evaluate(original_instructions, original_task, original_output) -> Evaluation:
-    # Get model configuration
-    model_id = os.getenv("BEDROCK_MODEL_ID", "us.anthropic.claude-3-7-sonnet-20250219-v1:0")
-    # Set region for LiteLLM Bedrock calls
-    bedrock_region = os.getenv("BEDROCK_REGION", "us-west-2")
-    logger.info(f"DEBUG: BEDROCK_REGION from env = {bedrock_region}")
-    os.environ["AWS_REGION_NAME"] = bedrock_region
-    logger.info(f"DEBUG: Set AWS_REGION_NAME to {bedrock_region}")
-
-    model = LitellmModel(model=f"bedrock/{model_id}")
+    model = create_litellm_model()
 
     instructions = """
 You are an Evaluation Agent that evaluates the quality of a financial report from a financial planning agent.
