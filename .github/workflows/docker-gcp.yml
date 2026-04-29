@@ -5,6 +5,7 @@
 # Clerk: set repository secret NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY (and any other NEXT_PUBLIC_* your app needs).
 # Portfolio API: set GitHub Variable NEXT_PUBLIC_API_URL to the Cloud Run URL of **backend/api** (deploy separately with
 # `docker build -f backend/api/Dockerfile .` + gcloud run deploy). Do not use the researcher URL — it has no /api/user.
+# Re-run without a code change: GitHub → Actions → Docker GCP → Run workflow (workflow_dispatch).
 
 name: Docker GCP
 
@@ -16,6 +17,7 @@ on:
     paths:
       - "backend/researcher/**"
       - "backend/api/**"
+      - "backend/database/**"
       - "frontend/**"
       - ".github/workflows/docker-gcp.yml"
 
