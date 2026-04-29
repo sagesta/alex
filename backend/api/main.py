@@ -64,6 +64,40 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+import re as _re
+
+# Compile the CORS origin regex once for the preflight middleware
+_cors_origin_pattern = _re.compile(cors_origin_regex) if cors_origin_regex else None
+
+@app.middleware("http")
+async def handle_preflight(request: Request, call_next):
+    """
+    Intercept OPTIONS preflight requests before they reach auth-protected
+    routes.  Without this, the Clerk auth dependency rejects the preflight
+    (which carries no Bearer token) with 400, and the browser blocks every
+    subsequent cross-origin request.
+    """
+    if request.method == "OPTIONS":
+        origin = request.headers.get("origin", "")
+        # Check whether the origin is allowed
+        allowed = origin in cors_origins
+        if not allowed and _cors_origin_pattern and _cors_origin_pattern.fullmatch(origin):
+            allowed = True
+        if allowed:
+            return JSONResponse(
+                status_code=200,
+                headers={
+                    "Access-Control-Allow-Origin": origin,
+                    "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS, PATCH",
+                    "Access-Control-Allow-Headers": request.headers.get(
+                        "access-control-request-headers", "*"
+                    ),
+                    "Access-Control-Allow-Credentials": "true",
+                    "Access-Control-Max-Age": "3600",
+                },
+            )
+    return await call_next(request)
+
 # Custom exception handlers for better error messages
 @app.exception_handler(ValidationError)
 async def validation_exception_handler(request: Request, exc: ValidationError):
