@@ -140,6 +140,8 @@ celerybeat.pid
 .env.backup
 .env.*
 !.env.example
+!.env.local.example
+!.env.gcp.example
 
 # Terraform variables (contain secrets) — e.g. terraform/gcp/terraform.tfvars, *.auto.tfvars
 *.tfvars
