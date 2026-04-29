@@ -19,6 +19,7 @@ app_name   = "alex"
 #   GCS_FRONTEND_BUCKET   = terraform output frontend_bucket_name (static Next export → GCS)
 #   NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY (secret) — required for frontend build unless you skip static deploy
 #   NEXT_PUBLIC_API_URL — optional; point at your Cloud Run / API URL for the demo
+#   (CI sets NEXT_PUBLIC_ASSET_PREFIX from the bucket so CSS/JS load on GCS — see frontend/next.config.ts)
 #   CLOUD_RUN_RESEARCHER_SERVICE — defaults to alex-researcher if app_name is alex
 # Re-apply terraform after pulling: adds GCS frontend bucket + roles/run.admin on the GitHub Actions SA
 # Optional overrides:
