@@ -1,4 +1,4 @@
-version: "3.9"
+
 
 # Local development stack for Alex Financial Advisor
 # Spins up: Postgres, the FastAPI backend (alex-api), and the Next.js frontend.
@@ -49,16 +49,10 @@ services:
       PUBSUB_ANALYSIS_TOPIC: ""
       PORT: "8080"
     ports:
-      - "8080:8080"
+      - "8081:8080"
     volumes:
       - ./backend/api:/app/api_src:ro
       - ./backend/database:/database:ro
-    healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:8080/health || exit 1"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
   # ── Next.js Frontend ─────────────────────────────────────────────────────────
   frontend:
     build:
@@ -66,11 +60,10 @@ services:
       dockerfile: frontend/Dockerfile.local
     container_name: alex-frontend
     depends_on:
-      api:
-        condition: service_healthy
+      - api
     environment:
       # The API URL used by Next.js rewrites — points to the api container
-      NEXT_PUBLIC_API_URL: "http://api:8080"
+      BACKEND_URL: "http://api:8080"
       NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY}
       PORT: "3000"
       HOSTNAME: "0.0.0.0"
