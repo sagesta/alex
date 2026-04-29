@@ -1,0 +1,22 @@
+project_id = "project-4b1700d0-2b09-4852-8e3"
+region     = "us-central1"
+app_name   = "alex"
+
+# Optional — sizing
+# db_tier         = "db-g1-small"
+# db_disk_size_gb = 20
+
+# Optional — GitHub Actions Terraform SA (defaults: create_github_actions_sa = true, create_github_actions_key = true)
+# create_github_actions_sa  = false
+# create_github_actions_key = false
+
+# --- GitHub repository Variables (Settings → Secrets and variables → Actions → Variables)
+# Required for .github/workflows/terraform-gcp.yml:
+#   TF_VAR_project_id = (same as project_id above)
+#   TF_VAR_region     = (same as region above)
+# Optional overrides:
+#   TF_VAR_app_name        = alex
+#   TF_VAR_db_tier         = db-f1-micro
+#   TF_VAR_db_disk_size_gb = 10
+# Repository Secret: GCP_SA_KEY = full JSON from terraform output github_actions_sa_key_base64 (decoded) or gcloud key create
+# After apply, optionally copy terraform outputs into Variables: artifact_registry_url, gcs_vectors_bucket, etc.
