@@ -45,6 +45,7 @@ variable "create_frontend_bucket" {
   default     = true
 }
 
+# Prerequisites when true: enforced by terraform_data.load_balancer_guard in load_balancer.tf (not variable validation).
 variable "create_load_balancer" {
   type        = bool
   description = "Create a global HTTP(S) load balancer: GCS → default, /api/* → Cloud Run portfolio API (see cloud_run_api_service_name)"

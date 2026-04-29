@@ -14,14 +14,16 @@ locals {
   lb_https_enabled = local.lb_enabled && var.load_balancer_domain != ""
 }
 
-# Variable validation cannot reference other variables; use check (Terraform >= 1.5, matches required_version).
-check "load_balancer_prerequisites" {
-  assert {
-    condition = (
-      !var.create_load_balancer ||
-      (var.create_frontend_bucket && var.cloud_run_api_service_name != "")
-    )
-    error_message = "When create_load_balancer is true, create_frontend_bucket must be true and cloud_run_api_service_name must be set (deploy backend/api to Cloud Run in var.region first)."
+# Cross-variable LB rules cannot use variable "validation" (only same-var allowed). Preconditions work on any resource.
+resource "terraform_data" "load_balancer_guard" {
+  lifecycle {
+    precondition {
+      condition = (
+        !var.create_load_balancer ||
+        (var.create_frontend_bucket && var.cloud_run_api_service_name != "")
+      )
+      error_message = "When create_load_balancer is true, create_frontend_bucket must be true and cloud_run_api_service_name must be set (deploy backend/api to Cloud Run in var.region first)."
+    }
   }
 }
 
