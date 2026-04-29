@@ -39,6 +39,8 @@ jobs:
             context: backend/researcher
           - service: api
             context: backend/api
+          - service: frontend
+            context: frontend
 
     steps:
       - name: Checkout
@@ -189,74 +191,72 @@ jobs:
           echo "service_url=$URL" >> "$GITHUB_OUTPUT"
           echo "Portfolio API URL: $URL"
 
+  # Frontend Next.js server on Cloud Run — replaces GCS static hosting.
+  # NEXT_PUBLIC_* are set as Cloud Run runtime env vars at deploy (not baked into image).
   deploy-frontend:
     needs: [build-push, deploy-api]
     runs-on: ubuntu-latest
-    continue-on-error: true
     env:
-      GCS_FRONTEND_BUCKET: ${{ vars.GCS_FRONTEND_BUCKET || vars.FRONTEND_BUCKET || secrets.GCS_FRONTEND_BUCKET }}
+      ARTIFACT_REGISTRY_URL: ${{ vars.ARTIFACT_REGISTRY_URL || vars.GCP_ARTIFACT_REGISTRY || secrets.ARTIFACT_REGISTRY_URL || secrets.GCP_ARTIFACT_REGISTRY }}
+      GCP_REGION: ${{ vars.TF_VAR_region || vars.TF_VAR_REGION || vars.GCP_REGION || secrets.TF_VAR_region || secrets.TF_VAR_REGION || secrets.GCP_REGION }}
+      GCP_PROJECT: ${{ vars.TF_VAR_project_id || vars.GCP_PROJECT_ID || secrets.TF_VAR_project_id || secrets.GCP_PROJECT_ID }}
+      CLOUD_RUN_FRONTEND_SERVICE: ${{ vars.CLOUD_RUN_FRONTEND_SERVICE || 'alex-frontend' }}
     outputs:
-      frontend_url: ${{ steps.sync.outputs.frontend_url }}
-      skipped: ${{ steps.check.outputs.skipped }}
+      service_url: ${{ steps.deploy.outputs.service_url }}
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - id: check
+      - name: Check GCP config
         run: |
-          if [ -z "$GCS_FRONTEND_BUCKET" ]; then
-            echo "skipped=true" >> "$GITHUB_OUTPUT"
-            echo "::notice::Set GitHub Variable GCS_FRONTEND_BUCKET to terraform output frontend_bucket_name to deploy the static site."
-          else
-            echo "skipped=false" >> "$GITHUB_OUTPUT"
-          fi
+          test -n "$GCP_REGION" && test -n "$GCP_PROJECT" || { echo "::error::Set TF_VAR_region and TF_VAR_project_id (or GCP_REGION / GCP_PROJECT_ID)"; exit 1; }
+          test -n "$ARTIFACT_REGISTRY_URL" || { echo "::error::Set ARTIFACT_REGISTRY_URL"; exit 1; }
 
       - name: Authenticate to Google Cloud
-        if: steps.check.outputs.skipped == 'false'
         uses: google-github-actions/auth@v2
         with:
           credentials_json: ${{ secrets.GCP_SA_KEY || secrets.GOOGLE_CREDENTIALS || secrets.GCP_CREDENTIALS || secrets.GOOGLE_APPLICATION_CREDENTIALS_JSON }}
 
       - name: Set up Cloud SDK
-        if: steps.check.outputs.skipped == 'false'
         uses: google-github-actions/setup-gcloud@v2
 
-      - name: Setup Node
-        if: steps.check.outputs.skipped == 'false'
-        uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-          cache: npm
-          cache-dependency-path: frontend/package-lock.json
-
-      - name: Install and build frontend
-        if: steps.check.outputs.skipped == 'false'
-        working-directory: frontend
+      - name: Deploy Frontend to Cloud Run
+        id: deploy
         env:
+          IMAGE: ${{ env.ARTIFACT_REGISTRY_URL }}/frontend:${{ needs.build-push.outputs.image_tag }}
           NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${{ secrets.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY }}
-          NEXT_PUBLIC_API_URL: ${{ vars.NEXT_PUBLIC_API_URL || secrets.NEXT_PUBLIC_API_URL }}
-          DEPLOYED_API_URL: ${{ needs.deploy-api.outputs.service_url }}
+          NEXT_PUBLIC_API_URL: ${{ vars.NEXT_PUBLIC_API_URL || secrets.NEXT_PUBLIC_API_URL || needs.deploy-api.outputs.service_url }}
         run: |
-          export NEXT_PUBLIC_ASSET_PREFIX="https://${GCS_FRONTEND_BUCKET}.storage.googleapis.com"
-          # Bake the portfolio API origin into the static export (required on GCS). Prefer explicit Variable/Secret; else use URL from deploy-api job.
-          if [ -z "${NEXT_PUBLIC_API_URL}" ] || [ "${NEXT_PUBLIC_API_URL}" = "null" ]; then
-            export NEXT_PUBLIC_API_URL="${DEPLOYED_API_URL}"
+          # Resolve API URL: explicit variable wins; fall back to freshly deployed api service URL
+          RESOLVED_API_URL="${NEXT_PUBLIC_API_URL}"
+          if [ -z "$RESOLVED_API_URL" ] || [ "$RESOLVED_API_URL" = "null" ]; then
+            echo "::warning::NEXT_PUBLIC_API_URL not set; frontend will use same-origin /api/* (works with a load balancer, not direct Cloud Run)."
           fi
-          if [ -z "${NEXT_PUBLIC_API_URL}" ] || [ "${NEXT_PUBLIC_API_URL}" = "null" ]; then
-            echo "::error::NEXT_PUBLIC_API_URL is empty. Set GitHub Variable NEXT_PUBLIC_API_URL to your portfolio API Cloud Run URL, or ensure deploy-api succeeded."
-            exit 1
-          fi
-          echo "NEXT_PUBLIC_API_URL is set for static build (length check: ${#NEXT_PUBLIC_API_URL} chars)"
-          npm ci
-          npm run build
 
-      - name: Sync to GCS
-        id: sync
-        if: steps.check.outputs.skipped == 'false'
-        run: |
-          gsutil -m rsync -r -d frontend/out "gs://${GCS_FRONTEND_BUCKET}/"
-          URL="https://${GCS_FRONTEND_BUCKET}.storage.googleapis.com/index.html"
-          echo "frontend_url=$URL" >> "$GITHUB_OUTPUT"
+          python3 << 'PY'
+import json, os
+from pathlib import Path
+p = Path("/tmp/alex-frontend-env.yaml")
+env = {
+    "NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY": os.environ.get("NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY", ""),
+}
+api_url = os.environ.get("NEXT_PUBLIC_API_URL", "").strip()
+if api_url and api_url != "null":
+    env["NEXT_PUBLIC_API_URL"] = api_url
+lines = [f"{k}: {json.dumps(v)}" for k, v in env.items() if v]
+p.write_text("\n".join(lines) + "\n", encoding="utf-8")
+PY
+          gcloud run deploy "$CLOUD_RUN_FRONTEND_SERVICE" \
+            --image "$IMAGE" \
+            --region "$GCP_REGION" \
+            --project "$GCP_PROJECT" \
+            --platform managed \
+            --allow-unauthenticated \
+            --port 8080 \
+            --memory 512Mi \
+            --cpu 1 \
+            --timeout 60 \
+            --env-vars-file /tmp/alex-frontend-env.yaml \
+            --quiet
+          URL=$(gcloud run services describe "$CLOUD_RUN_FRONTEND_SERVICE" --region "$GCP_REGION" --project "$GCP_PROJECT" --format 'value(status.url)')
+          echo "service_url=$URL" >> "$GITHUB_OUTPUT"
           echo "Frontend URL: $URL"
 
   demo-urls:
@@ -268,34 +268,31 @@ jobs:
         env:
           RESEARCHER_URL: ${{ needs.deploy-researcher.outputs.service_url }}
           API_URL: ${{ needs.deploy-api.outputs.service_url }}
-          FRONTEND_URL: ${{ needs.deploy-frontend.outputs.frontend_url }}
-          FE_SKIPPED: ${{ needs.deploy-frontend.outputs.skipped }}
+          FRONTEND_URL: ${{ needs.deploy-frontend.outputs.service_url }}
           RESEARCHER_RESULT: ${{ needs.deploy-researcher.result }}
           API_RESULT: ${{ needs.deploy-api.result }}
+          FRONTEND_RESULT: ${{ needs.deploy-frontend.result }}
         run: |
           {
             echo "## Demo URLs"
             echo ""
             echo "| Service | URL |"
             echo "| --- | --- |"
+            if [ "$FRONTEND_RESULT" = "success" ] && [ -n "$FRONTEND_URL" ]; then
+              echo "| **Frontend (Cloud Run)** | $FRONTEND_URL |"
+            else
+              echo "| **Frontend (Cloud Run)** | *(deploy-frontend failed — check job logs)* |"
+            fi
             if [ "$API_RESULT" = "success" ] && [ -n "$API_URL" ]; then
               echo "| **Portfolio API (Cloud Run)** | $API_URL |"
             else
-              echo "| **Portfolio API (Cloud Run)** | *(deploy-api failed — needs secrets CLERK_JWKS_URL + API_DATABASE_URL; see job logs)* |"
+              echo "| **Portfolio API (Cloud Run)** | *(deploy-api failed — needs secrets CLERK_JWKS_URL + DATABASE_URL)* |"
             fi
             if [ "$RESEARCHER_RESULT" = "success" ] && [ -n "$RESEARCHER_URL" ]; then
               echo "| **Researcher (Cloud Run)** | $RESEARCHER_URL |"
             else
-              echo "| **Researcher (Cloud Run)** | *(deploy failed or skipped — check job logs)* |"
-            fi
-            if [ "$FE_SKIPPED" = "true" ]; then
-              echo "| **Frontend (GCS)** | *Set \`GCS_FRONTEND_BUCKET\` + re-run; or open terraform output \`frontend_public_url\`* |"
-            elif [ -n "$FRONTEND_URL" ]; then
-              echo "| **Frontend (GCS static)** | $FRONTEND_URL |"
-            else
-              echo "| **Frontend (GCS)** | *(build/upload failed — see deploy-frontend job; needs Clerk \`NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY\`)* |"
+              echo "| **Researcher (Cloud Run)** | *(deploy failed — check job logs)* |"
             fi
             echo ""
-            echo ""
-            echo "**Portfolio API (dashboard / Clerk):** \`NEXT_PUBLIC_API_URL\` must be the Cloud Run service that runs \`backend/api\` (routes like \`/api/user\`), **not** the researcher URL."
+            echo "**Backend wiring:** \`NEXT_PUBLIC_API_URL\` on the frontend Cloud Run service must point at \`alex-api\` (not researcher). Set as GitHub Variable/Secret or it auto-resolves from \`deploy-api\`."
           } >> "$GITHUB_STEP_SUMMARY"

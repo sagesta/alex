@@ -43,10 +43,8 @@ app = FastAPI(
     version="1.0.0"
 )
 
-# CORS configuration
-# - CORS_ORIGINS: comma-separated exact origins (e.g. http://localhost:3000)
-# - CORS_ORIGIN_REGEX: GCS static sites — virtual-host (https://<bucket>.storage.googleapis.com)
-#   and path-style (Origin https://storage.googleapis.com). If Origin does not match, preflight OPTIONS returns 400.
+# CORS: allow localhost, GCS origins, and Cloud Run *.run.app origins (frontend Cloud Run service).
+# Override with CORS_ORIGINS / CORS_ORIGIN_REGEX env vars on the Cloud Run service if needed.
 cors_origins = [
     o.strip()
     for o in os.getenv("CORS_ORIGINS", "http://localhost:3000").split(",")
@@ -54,7 +52,7 @@ cors_origins = [
 ]
 cors_origin_regex = os.getenv(
     "CORS_ORIGIN_REGEX",
-    r"https://(storage\.googleapis\.com|[a-z0-9][-a-z0-9_.]*\.storage\.googleapis\.com)",
+    r"https://(storage\.googleapis\.com|[a-z0-9][-a-z0-9_.]*\.storage\.googleapis\.com|[a-z0-9][-a-z0-9]*\.run\.app)",
 )
 app.add_middleware(
     CORSMiddleware,
