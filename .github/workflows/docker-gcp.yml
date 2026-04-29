@@ -1,5 +1,5 @@
-# Build researcher image → Artifact Registry → Cloud Run.
-# Build Next static export → GCS bucket (terraform output frontend_bucket_name → GitHub Variable GCS_FRONTEND_BUCKET).
+# Build researcher/api/frontend images → Artifact Registry.
+# Deploy researcher/api/frontend services to Cloud Run.
 #
 # Prereqs: terraform apply in terraform/gcp; GitHub secrets/vars (see terraform.tfvars.example).
 # Clerk: set repository secret NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY (and any other NEXT_PUBLIC_* your app needs).
@@ -156,6 +156,8 @@ jobs:
           IMAGE: ${{ env.ARTIFACT_REGISTRY_URL }}/api:${{ needs.build-push.outputs.image_tag }}
           CLERK_JWKS_URL: ${{ secrets.CLERK_JWKS_URL }}
           DATABASE_URL: ${{ secrets.API_DATABASE_URL || secrets.DATABASE_URL }}
+          PUBSUB_ANALYSIS_TOPIC: ${{ vars.PUBSUB_ANALYSIS_TOPIC || vars.pubsub_analysis_topic || secrets.PUBSUB_ANALYSIS_TOPIC }}
+          GCP_PROJECT_ID: ${{ env.GCP_PROJECT }}
           CLOUD_SQL_CONNECTION_NAME: ${{ vars.CLOUD_SQL_CONNECTION_NAME || vars.cloud_sql_connection_name }}
         run: |
           test -n "$CLERK_JWKS_URL" || { echo "::error::Add repository secret CLERK_JWKS_URL (Clerk Dashboard → API Keys → JWT template / JWKS URL)"; exit 1; }
@@ -164,10 +166,15 @@ jobs:
           import json, os
           from pathlib import Path
           p = Path("/tmp/alex-api-cloudrun-env.yaml")
-          lines = [
-              "CLERK_JWKS_URL: " + json.dumps(os.environ["CLERK_JWKS_URL"]),
-              "DATABASE_URL: " + json.dumps(os.environ["DATABASE_URL"]),
-          ]
+          env = {
+              "CLERK_JWKS_URL": os.environ["CLERK_JWKS_URL"],
+              "DATABASE_URL": os.environ["DATABASE_URL"],
+              "GCP_PROJECT_ID": os.environ.get("GCP_PROJECT_ID", ""),
+          }
+          topic = os.environ.get("PUBSUB_ANALYSIS_TOPIC", "").strip()
+          if topic:
+              env["PUBSUB_ANALYSIS_TOPIC"] = topic
+          lines = [f"{k}: {json.dumps(v)}" for k, v in env.items() if v]
           p.write_text("\n".join(lines) + "\n", encoding="utf-8")
           PY
           EXTRA=()
@@ -231,18 +238,18 @@ jobs:
           fi
 
           python3 << 'PY'
-import json, os
-from pathlib import Path
-p = Path("/tmp/alex-frontend-env.yaml")
-env = {
-    "NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY": os.environ.get("NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY", ""),
-}
-api_url = os.environ.get("NEXT_PUBLIC_API_URL", "").strip()
-if api_url and api_url != "null":
-    env["NEXT_PUBLIC_API_URL"] = api_url
-lines = [f"{k}: {json.dumps(v)}" for k, v in env.items() if v]
-p.write_text("\n".join(lines) + "\n", encoding="utf-8")
-PY
+          import json, os
+          from pathlib import Path
+          p = Path("/tmp/alex-frontend-env.yaml")
+          env = {
+              "NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY": os.environ.get("NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY", ""),
+          }
+          api_url = os.environ.get("NEXT_PUBLIC_API_URL", "").strip()
+          if api_url and api_url != "null":
+              env["NEXT_PUBLIC_API_URL"] = api_url
+          lines = [f"{k}: {json.dumps(v)}" for k, v in env.items() if v]
+          p.write_text("\n".join(lines) + "\n", encoding="utf-8")
+          PY
           gcloud run deploy "$CLOUD_RUN_FRONTEND_SERVICE" \
             --image "$IMAGE" \
             --region "$GCP_REGION" \

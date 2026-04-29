@@ -16,6 +16,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, ValidationError
 import boto3
+from google.cloud import pubsub_v1
 from mangum import Mangum
 from dotenv import load_dotenv
 from fastapi_clerk_auth import ClerkConfig, ClerkHTTPBearer, HTTPAuthorizationCredentials
@@ -103,9 +104,37 @@ async def general_exception_handler(request: Request, exc: Exception):
 # Initialize services
 db = Database()
 
-# SQS client for job queueing
+# Queueing for analysis jobs:
+# - GCP path: Pub/Sub topic (PUBSUB_ANALYSIS_TOPIC or PUBSUB_TOPIC)
+# - AWS fallback: SQS_QUEUE_URL
 sqs_client = boto3.client('sqs', region_name=os.getenv('DEFAULT_AWS_REGION', 'us-east-1'))
 SQS_QUEUE_URL = os.getenv('SQS_QUEUE_URL', '')
+PUBSUB_ANALYSIS_TOPIC = os.getenv('PUBSUB_ANALYSIS_TOPIC') or os.getenv('PUBSUB_TOPIC', '')
+GCP_PROJECT_ID = os.getenv('GCP_PROJECT_ID') or os.getenv('GOOGLE_CLOUD_PROJECT', '')
+pubsub_publisher = pubsub_v1.PublisherClient() if PUBSUB_ANALYSIS_TOPIC else None
+
+
+def _publish_analysis_message(message: Dict[str, Any]) -> str:
+    """
+    Publish analysis job message.
+    Returns queue backend used: "pubsub" or "sqs".
+    """
+    if pubsub_publisher and PUBSUB_ANALYSIS_TOPIC:
+        if PUBSUB_ANALYSIS_TOPIC.startswith("projects/"):
+            topic_path = PUBSUB_ANALYSIS_TOPIC
+        else:
+            if not GCP_PROJECT_ID:
+                raise ValueError("GCP_PROJECT_ID/GOOGLE_CLOUD_PROJECT is required when PUBSUB_ANALYSIS_TOPIC is not fully-qualified")
+            topic_path = pubsub_publisher.topic_path(GCP_PROJECT_ID, PUBSUB_ANALYSIS_TOPIC)
+        pubsub_publisher.publish(topic_path, json.dumps(message).encode("utf-8")).result(timeout=10)
+        return "pubsub"
+    if SQS_QUEUE_URL:
+        sqs_client.send_message(
+            QueueUrl=SQS_QUEUE_URL,
+            MessageBody=json.dumps(message)
+        )
+        return "sqs"
+    raise ValueError("No queue backend configured: set PUBSUB_ANALYSIS_TOPIC/PUBSUB_TOPIC (GCP) or SQS_QUEUE_URL (AWS)")
 
 # Clerk authentication setup (exactly like saas reference)
 clerk_config = ClerkConfig(jwks_url=os.getenv("CLERK_JWKS_URL"))
@@ -519,22 +548,14 @@ async def trigger_analysis(request: AnalyzeRequest, clerk_user_id: str = Depends
         # Get the created job
         job = db.jobs.find_by_id(job_id)
 
-        # Send to SQS
-        if SQS_QUEUE_URL:
-            message = {
-                'job_id': str(job_id),
-                'clerk_user_id': clerk_user_id,
-                'analysis_type': request.analysis_type,
-                'options': request.options
-            }
-
-            sqs_client.send_message(
-                QueueUrl=SQS_QUEUE_URL,
-                MessageBody=json.dumps(message)
-            )
-            logger.info(f"Sent analysis job to SQS: {job_id}")
-        else:
-            logger.warning("SQS_QUEUE_URL not configured, job created but not queued")
+        message = {
+            'job_id': str(job_id),
+            'clerk_user_id': clerk_user_id,
+            'analysis_type': request.analysis_type,
+            'options': request.options
+        }
+        backend = _publish_analysis_message(message)
+        logger.info(f"Queued analysis job {job_id} via {backend}")
 
         return AnalyzeResponse(
             job_id=str(job_id),
