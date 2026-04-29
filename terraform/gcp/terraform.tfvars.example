@@ -25,12 +25,17 @@ app_name   = "alex"
 #     TF_VAR_region, TF_VAR_REGION, GCP_REGION, GOOGLE_CLOUD_REGION, DEFAULT_REGION, GCLOUD_REGION
 #     GCP_SA_KEY, GOOGLE_CREDENTIALS, GCP_CREDENTIALS, GOOGLE_APPLICATION_CREDENTIALS_JSON (SA JSON)
 #
-#   .github/workflows/docker-gcp.yml (build images, deploy researcher, sync frontend to GCS):
+#   .github/workflows/docker-gcp.yml (build researcher + api images, deploy both to Cloud Run, sync frontend to GCS):
 #     ARTIFACT_REGISTRY_URL     ← terraform output artifact_registry_url
 #     GCS_FRONTEND_BUCKET       ← terraform output frontend_bucket_name
 #     NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY (Secret) — frontend static build
-#     NEXT_PUBLIC_API_URL (Variable/Secret) — baked into the static export at build time
+#     NEXT_PUBLIC_API_URL (Variable/Secret) — optional if deploy-api succeeds; workflow can use the deployed API URL
 #     CLOUD_RUN_RESEARCHER_SERVICE — optional; default alex-researcher
+#     --- Portfolio API (backend/api) — required if you never created it (only alex-researcher is not enough) ---
+#     CLERK_JWKS_URL (Secret) — Clerk JWKS URL for JWT verification (not the publishable key)
+#     DATABASE_URL or API_DATABASE_URL (Secret) — full postgresql://… (copy value from Secret Manager alex-database-url)
+#     CLOUD_SQL_CONNECTION_NAME (Variable, optional) — terraform output cloud_sql_connection_name for --add-cloudsql-instances
+#   Local alternative (Docker + gcloud): from repo root, `uv run scripts/deploy_portfolio_api_gcp.py` with env vars set (see script docstring).
 #   CI sets NEXT_PUBLIC_ASSET_PREFIX from the bucket (see frontend/next.config.ts).
 
 # =============================================================================
