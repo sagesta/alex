@@ -3,6 +3,7 @@
 #
 # Prereqs: terraform apply in terraform/gcp; GitHub secrets/vars (see terraform.tfvars.example).
 # Clerk: set repository secret NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY (and any other NEXT_PUBLIC_* your app needs).
+# Portfolio API: set Variable/Secret NEXT_PUBLIC_API_URL to backend/api Cloud Run URL (routes /api/user), not researcher only.
 
 name: Docker GCP
 

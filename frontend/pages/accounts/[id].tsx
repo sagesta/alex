@@ -3,7 +3,7 @@ import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/router";
 import Layout from "../../components/Layout";
 import ConfirmModal from "../../components/ConfirmModal";
-import { API_URL } from "../../lib/config";
+import { getApiUrl } from "../../lib/config";
 
 interface Instrument {
   symbol: string;
@@ -58,7 +58,7 @@ export default function AccountDetail() {
       const token = await getToken();
 
       // Load account details
-      const accountResponse = await fetch(`${API_URL}/api/accounts`, {
+      const accountResponse = await fetch(`${getApiUrl()}/api/accounts`, {
         headers: {
           'Authorization': `Bearer ${token}`,
         },
@@ -84,7 +84,7 @@ export default function AccountDetail() {
 
       // Load positions
       const positionsResponse = await fetch(
-        `${API_URL}/api/accounts/${id}/positions`,
+        `${getApiUrl()}/api/accounts/${id}/positions`,
         {
           headers: {
             'Authorization': `Bearer ${token}`,
@@ -99,7 +99,7 @@ export default function AccountDetail() {
 
       // Load instruments for autocomplete
       const instrumentsResponse = await fetch(
-        `${API_URL}/api/instruments`,
+        `${getApiUrl()}/api/instruments`,
         {
           headers: {
             'Authorization': `Bearer ${token}`,
@@ -130,7 +130,7 @@ export default function AccountDetail() {
 
     try {
       const token = await getToken();
-      const response = await fetch(`${API_URL}/api/accounts/${id}`, {
+      const response = await fetch(`${getApiUrl()}/api/accounts/${id}`, {
         method: 'PUT',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -171,7 +171,7 @@ export default function AccountDetail() {
 
     try {
       const token = await getToken();
-      const response = await fetch(`${API_URL}/api/positions/${positionId}`, {
+      const response = await fetch(`${getApiUrl()}/api/positions/${positionId}`, {
         method: 'PUT',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -203,7 +203,7 @@ export default function AccountDetail() {
 
     try {
       const token = await getToken();
-      const response = await fetch(`${API_URL}/api/positions/${positionId}`, {
+      const response = await fetch(`${getApiUrl()}/api/positions/${positionId}`, {
         method: 'DELETE',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -241,7 +241,7 @@ export default function AccountDetail() {
 
     try {
       const token = await getToken();
-      const response = await fetch(`${API_URL}/api/positions`, {
+      const response = await fetch(`${getApiUrl()}/api/positions`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`,

@@ -9,7 +9,7 @@ import {
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer
 } from 'recharts';
 import Layout from '../components/Layout';
-import { API_URL } from '../lib/config';
+import { getApiUrl } from '../lib/config';
 import Head from 'next/head';
 
 interface Job {
@@ -68,7 +68,7 @@ export default function Analysis() {
     const loadJob = async (jobId: string) => {
       try {
         const token = await getToken();
-        const response = await fetch(`${API_URL}/api/jobs/${jobId}`, {
+        const response = await fetch(`${getApiUrl()}/api/jobs/${jobId}`, {
           headers: {
             'Authorization': `Bearer ${token}`
           }
@@ -92,7 +92,7 @@ export default function Analysis() {
       try {
         const token = await getToken();
         // First, get the list of jobs to find the latest completed one
-        const response = await fetch(`${API_URL}/api/jobs`, {
+        const response = await fetch(`${getApiUrl()}/api/jobs`, {
           headers: {
             'Authorization': `Bearer ${token}`
           }

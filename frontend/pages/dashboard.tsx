@@ -1,6 +1,6 @@
 import { useUser, useAuth } from "@clerk/nextjs";
 import { useEffect, useState, useCallback } from "react";
-import { API_URL } from "../lib/config";
+import { getApiUrl } from "../lib/config";
 import Layout from "../components/Layout";
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, Legend } from "recharts";
 import { Skeleton, SkeletonCard } from "../components/Skeleton";
@@ -119,7 +119,7 @@ export default function Dashboard() {
         }
 
         // Get/create user
-        const userResponse = await fetch(`${API_URL}/api/user`, {
+        const userResponse = await fetch(`${getApiUrl()}/api/user`, {
           headers: {
             "Authorization": `Bearer ${token}`,
           },
@@ -147,7 +147,7 @@ export default function Dashboard() {
         setInternationalTarget(userData.region_targets?.international || 0);
 
         // Get accounts
-        const accountsResponse = await fetch(`${API_URL}/api/accounts`, {
+        const accountsResponse = await fetch(`${getApiUrl()}/api/accounts`, {
           headers: {
             "Authorization": `Bearer ${token}`,
           },
@@ -168,7 +168,7 @@ export default function Dashboard() {
               continue;
             }
 
-            const positionsResponse = await fetch(`${API_URL}/api/accounts/${account.id}/positions`, {
+            const positionsResponse = await fetch(`${getApiUrl()}/api/accounts/${account.id}/positions`, {
               headers: {
                 "Authorization": `Bearer ${token}`,
               },
@@ -193,7 +193,7 @@ export default function Dashboard() {
         }
 
         // Get last analysis date from jobs endpoint
-        const jobsResponse = await fetch(`${API_URL}/api/jobs`, {
+        const jobsResponse = await fetch(`${getApiUrl()}/api/jobs`, {
           headers: {
             "Authorization": `Bearer ${token}`,
           },
@@ -232,7 +232,7 @@ export default function Dashboard() {
         console.log('Analysis completed - refreshing dashboard data...');
 
         // Refresh accounts to get latest prices
-        const accountsResponse = await fetch(`${API_URL}/api/accounts`, {
+        const accountsResponse = await fetch(`${getApiUrl()}/api/accounts`, {
           headers: {
             "Authorization": `Bearer ${token}`,
           },
@@ -248,7 +248,7 @@ export default function Dashboard() {
 
           for (const account of accountsData.accounts || []) {
             const positionsResponse = await fetch(
-              `${API_URL}/api/accounts/${account.id}/positions`,
+              `${getApiUrl()}/api/accounts/${account.id}/positions`,
               {
                 headers: {
                   "Authorization": `Bearer ${token}`,
@@ -341,7 +341,7 @@ export default function Dashboard() {
         }
       };
 
-      const response = await fetch(`${API_URL}/api/user`, {
+      const response = await fetch(`${getApiUrl()}/api/user`, {
         method: "PUT",
         headers: {
           "Authorization": `Bearer ${token}`,

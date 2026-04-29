@@ -30,5 +30,4 @@ export const getApiUrl = (): string => {
   return "";
 };
 
-/** Resolved at first import — ensure NEXT_PUBLIC_API_URL is set in CI for GCS-hosted static export. */
-export const API_URL = getApiUrl();
+/** Call at request time (not a module-level constant) so static export always uses the built-in NEXT_PUBLIC_API_URL. */

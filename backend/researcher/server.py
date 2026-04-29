@@ -8,10 +8,11 @@ from datetime import datetime, UTC
 from typing import Optional
 
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from dotenv import load_dotenv
 from agents import Agent, Runner, trace
-from agents.extensions.models.litellm_model import LitellmModel
+from src.litellm_model_factory import create_litellm_model
 
 # Suppress LiteLLM warnings about optional dependencies
 logging.getLogger("LiteLLM").setLevel(logging.CRITICAL)
@@ -25,6 +26,24 @@ from tools import ingest_financial_document
 load_dotenv(override=True)
 
 app = FastAPI(title="Alex Researcher Service")
+
+_cors_origins = [
+    o.strip()
+    for o in os.getenv("CORS_ORIGINS", "http://localhost:3000").split(",")
+    if o.strip()
+]
+_cors_origin_regex = os.getenv(
+    "CORS_ORIGIN_REGEX",
+    r"https://[a-z0-9][-a-z0-9_.]*\.storage\.googleapis\.com",
+)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=_cors_origins,
+    allow_origin_regex=_cors_origin_regex,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 # Request model
@@ -41,21 +60,7 @@ async def run_research_agent(topic: str = None) -> str:
     else:
         query = DEFAULT_RESEARCH_PROMPT
 
-    # Please override these variables with the region you are using
-    # Other choices: us-west-2 (for OpenAI OSS models) and eu-central-1
-    REGION = "us-east-1"
-    os.environ["AWS_REGION_NAME"] = REGION  # LiteLLM's preferred variable
-    os.environ["AWS_REGION"] = REGION  # Boto3 standard
-    os.environ["AWS_DEFAULT_REGION"] = REGION  # Fallback
-
-    # Please override this variable with the model you are using
-    # Common choices: bedrock/eu.amazon.nova-pro-v1:0 for EU and bedrock/us.amazon.nova-pro-v1:0 for US
-    # or bedrock/amazon.nova-pro-v1:0 if you are not using inference profiles
-    # bedrock/openai.gpt-oss-120b-1:0 for OpenAI OSS models
-    # bedrock/converse/us.anthropic.claude-sonnet-4-20250514-v1:0 for Claude Sonnet 4
-    # NOTE that nova-pro is needed to support tools and MCP servers; nova-lite is not enough - thank you Yuelin L.!
-    MODEL = "bedrock/us.amazon.nova-pro-v1:0"
-    model = LitellmModel(model=MODEL)
+    model = create_litellm_model()
 
     # Create and run the agent with MCP server
     with trace("Researcher"):
@@ -178,8 +183,7 @@ async def test_bedrock():
         except Exception as list_error:
             openai_models = f"Error listing: {str(list_error)}"
 
-        # Try basic model invocation with Nova Pro
-        model = LitellmModel(model="bedrock/amazon.nova-pro-v1:0")
+        model = create_litellm_model()
 
         agent = Agent(
             name="Test Agent",

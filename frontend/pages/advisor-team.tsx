@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
 import { useAuth } from '@clerk/nextjs';
 import Layout from '../components/Layout';
-import { API_URL } from '../lib/config';
+import { getApiUrl } from '../lib/config';
 import { emitAnalysisCompleted, emitAnalysisFailed, emitAnalysisStarted } from '../lib/events';
 import Head from 'next/head';
 
@@ -86,7 +86,7 @@ export default function AdvisorTeam() {
     const checkJobStatusLocal = async (jobId: string) => {
       try {
         const token = await getToken();
-        const response = await fetch(`${API_URL}/api/jobs/${jobId}`, {
+        const response = await fetch(`${getApiUrl()}/api/jobs/${jobId}`, {
           headers: {
             'Authorization': `Bearer ${token}`
           }
@@ -160,7 +160,7 @@ export default function AdvisorTeam() {
   const fetchJobs = async () => {
     try {
       const token = await getToken();
-      const response = await fetch(`${API_URL}/api/jobs`, {
+      const response = await fetch(`${getApiUrl()}/api/jobs`, {
         headers: {
           'Authorization': `Bearer ${token}`
         }
@@ -185,7 +185,7 @@ export default function AdvisorTeam() {
 
     try {
       const token = await getToken();
-      const response = await fetch(`${API_URL}/api/analyze`, {
+      const response = await fetch(`${getApiUrl()}/api/analyze`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

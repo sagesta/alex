@@ -3,7 +3,7 @@ import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/router";
 import Layout from "../components/Layout";
 import ConfirmModal from "../components/ConfirmModal";
-import { API_URL } from "../lib/config";
+import { getApiUrl } from "../lib/config";
 import { SkeletonTable } from "../components/Skeleton";
 import Head from "next/head";
 
@@ -44,7 +44,7 @@ export default function Accounts() {
   const loadAccounts = useCallback(async () => {
     try {
       const token = await getToken();
-      const response = await fetch(`${API_URL}/api/accounts`, {
+      const response = await fetch(`${getApiUrl()}/api/accounts`, {
         headers: {
           'Authorization': `Bearer ${token}`,
         },
@@ -65,7 +65,7 @@ export default function Accounts() {
 
             try {
               const positionsResponse = await fetch(
-                `${API_URL}/api/accounts/${account.id}/positions`,
+                `${getApiUrl()}/api/accounts/${account.id}/positions`,
                 {
                   headers: {
                     'Authorization': `Bearer ${token}`,
@@ -121,7 +121,7 @@ export default function Accounts() {
 
     try {
       const token = await getToken();
-      const response = await fetch(`${API_URL}/api/populate-test-data`, {
+      const response = await fetch(`${getApiUrl()}/api/populate-test-data`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -150,7 +150,7 @@ export default function Accounts() {
 
     try {
       const token = await getToken();
-      const response = await fetch(`${API_URL}/api/reset-accounts`, {
+      const response = await fetch(`${getApiUrl()}/api/reset-accounts`, {
         method: 'DELETE',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -198,7 +198,7 @@ export default function Accounts() {
 
     try {
       const token = await getToken();
-      const response = await fetch(`${API_URL}/api/accounts`, {
+      const response = await fetch(`${getApiUrl()}/api/accounts`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -234,7 +234,7 @@ export default function Accounts() {
 
     try {
       const token = await getToken();
-      const response = await fetch(`${API_URL}/api/accounts/${accountId}`, {
+      const response = await fetch(`${getApiUrl()}/api/accounts/${accountId}`, {
         method: 'DELETE',
         headers: {
           'Authorization': `Bearer ${token}`,

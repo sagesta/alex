@@ -44,11 +44,21 @@ app = FastAPI(
 )
 
 # CORS configuration
-# Get origins from CORS_ORIGINS env var (comma-separated) or fall back to localhost
-cors_origins = os.getenv("CORS_ORIGINS", "http://localhost:3000").split(",")
+# - CORS_ORIGINS: comma-separated exact origins (e.g. http://localhost:3000)
+# - CORS_ORIGIN_REGEX: matches Next static sites on GCS (https://<bucket>.storage.googleapis.com)
+cors_origins = [
+    o.strip()
+    for o in os.getenv("CORS_ORIGINS", "http://localhost:3000").split(",")
+    if o.strip()
+]
+cors_origin_regex = os.getenv(
+    "CORS_ORIGIN_REGEX",
+    r"https://[a-z0-9][-a-z0-9_.]*\.storage\.googleapis\.com",
+)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=cors_origins,
+    allow_origin_regex=cors_origin_regex,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
