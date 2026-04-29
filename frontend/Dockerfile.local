@@ -1,0 +1,20 @@
+# Local-only Dockerfile for Next.js frontend.
+# Runs `next dev` so changes are reflected immediately.
+# Build from repo root: docker compose up --build
+# For production Cloud Run use frontend/Dockerfile instead.
+
+FROM node:20-slim
+
+WORKDIR /frontend
+
+COPY frontend/package.json frontend/package-lock.json ./
+RUN npm ci
+
+COPY frontend/ ./
+
+EXPOSE 3000
+ENV PORT=3000
+ENV HOSTNAME=0.0.0.0
+
+# Use next dev for local — hot reload, no build step needed
+CMD ["npm", "run", "dev"]

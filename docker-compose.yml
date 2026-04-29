@@ -1,0 +1,81 @@
+version: "3.9"
+
+# Local development stack for Alex Financial Advisor
+# Spins up: Postgres, the FastAPI backend (alex-api), and the Next.js frontend.
+#
+# Usage:
+#   1. Copy .env.local.example to .env.local and fill in Clerk keys
+#   2. docker compose up --build
+#   3. Open http://localhost:3000
+#
+# The frontend proxies /api/* → alex-api:8080 via Next.js rewrites,
+# so there are NO cross-origin requests locally and CORS is irrelevant.
+
+services:
+  # ── Postgres ────────────────────────────────────────────────────────────────
+  postgres:
+    image: postgres:15-alpine
+    container_name: alex-postgres
+    environment:
+      POSTGRES_USER: alexadmin
+      POSTGRES_PASSWORD: localpassword
+      POSTGRES_DB: alex
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./backend/database/migrations/001_schema.sql:/docker-entrypoint-initdb.d/01_schema.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U alexadmin -d alex"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # ── FastAPI Backend (alex-api) ───────────────────────────────────────────────
+  api:
+    build:
+      context: .
+      dockerfile: backend/api/Dockerfile.local
+    container_name: alex-api
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://alexadmin:localpassword@postgres:5432/alex
+      CLERK_JWKS_URL: ${CLERK_JWKS_URL}
+      CORS_ORIGINS: "http://localhost:3000,http://frontend:3000"
+      # Disable AWS/GCP queue backends for local dev
+      SQS_QUEUE_URL: ""
+      PUBSUB_ANALYSIS_TOPIC: ""
+      PORT: "8080"
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./backend/api:/app/api_src:ro
+      - ./backend/database:/database:ro
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8080/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── Next.js Frontend ─────────────────────────────────────────────────────────
+  frontend:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile.local
+    container_name: alex-frontend
+    depends_on:
+      api:
+        condition: service_healthy
+    environment:
+      # The API URL used by Next.js rewrites — points to the api container
+      NEXT_PUBLIC_API_URL: "http://api:8080"
+      NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY}
+      PORT: "3000"
+      HOSTNAME: "0.0.0.0"
+    ports:
+      - "3000:3000"
+
+volumes:
+  postgres_data:

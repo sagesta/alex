@@ -173,7 +173,7 @@ jobs:
           PUBSUB_ANALYSIS_TOPIC: ${{ vars.PUBSUB_ANALYSIS_TOPIC || vars.pubsub_analysis_topic || secrets.PUBSUB_ANALYSIS_TOPIC }}
           GCP_PROJECT_ID: ${{ env.GCP_PROJECT }}
           CLOUD_SQL_CONNECTION_NAME: ${{ vars.CLOUD_SQL_CONNECTION_NAME || vars.cloud_sql_connection_name }}
-          FRONTEND_URL: ${{ vars.NEXT_PUBLIC_FRONTEND_URL || needs.deploy-frontend.outputs.service_url || '' }}
+          FRONTEND_URL: ${{ vars.NEXT_PUBLIC_FRONTEND_URL || '' }}
         run: |
           test -n "$CLERK_JWKS_URL" || { echo "::error::Add repository secret CLERK_JWKS_URL (Clerk Dashboard → API Keys → JWT template / JWKS URL)"; exit 1; }
           test -n "$DATABASE_URL" || { echo "::error::Add secret API_DATABASE_URL or DATABASE_URL with postgresql://… for Cloud SQL (same URI as terraform Secret Manager alex-database-url if you copy it)"; exit 1; }
