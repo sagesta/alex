@@ -9,7 +9,7 @@ locals {
     "roles/storage.admin",
     "roles/secretmanager.admin",
     "roles/pubsub.admin",
-    "roles/run.admin", # Cloud Run deploy from GitHub Actions
+    "roles/run.admin",                 # Cloud Run deploy from GitHub Actions
     "roles/compute.loadBalancerAdmin", # External HTTP(S) LB (terraform/gcp/load_balancer.tf)
   ]
 }
