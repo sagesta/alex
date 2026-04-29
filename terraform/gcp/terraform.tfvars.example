@@ -10,24 +10,45 @@ app_name   = "alex"
 # create_github_actions_sa  = false
 # create_github_actions_key = false
 
-# --- GitHub Actions: Terraform inputs (repository Variable or Secret; first match wins)
-#   Project: TF_VAR_project_id, GCP_PROJECT_ID, PROJECT_ID, GOOGLE_CLOUD_PROJECT, GCLOUD_PROJECT
-#   Region:  TF_VAR_region, TF_VAR_REGION, GCP_REGION, GOOGLE_CLOUD_REGION, DEFAULT_REGION, GCLOUD_REGION
-#   SA JSON: GCP_SA_KEY, GOOGLE_CREDENTIALS, GCP_CREDENTIALS, GOOGLE_APPLICATION_CREDENTIALS_JSON
-# Docker / Cloud Run / frontend (.github/workflows/docker-gcp.yml):
-#   ARTIFACT_REGISTRY_URL = terraform output artifact_registry_url
-#   GCS_FRONTEND_BUCKET   = terraform output frontend_bucket_name (static Next export → GCS)
-#   NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY (secret) — required for frontend build unless you skip static deploy
-#   NEXT_PUBLIC_API_URL — **required** for GCS static site: full URL of the **portfolio FastAPI** (backend/api on Cloud Run),
-#     e.g. https://alex-api-xxxxx.run.app — **not** the researcher service (backend/researcher has no /api/user).
-#     Set CLERK_JWKS_URL + CLERK_ISSUER on that API service or 401 on /api/user persists.
-#   CORS: backend/api and researcher allow https://<bucket>.storage.googleapis.com via CORS_ORIGIN_REGEX (override with env if needed).
-#   (CI sets NEXT_PUBLIC_ASSET_PREFIX from the bucket so CSS/JS load on GCS — see frontend/next.config.ts)
-#   CLOUD_RUN_RESEARCHER_SERVICE — defaults to alex-researcher if app_name is alex
-# Re-apply terraform after pulling: adds GCS frontend bucket + roles/run.admin on the GitHub Actions SA
-# Optional overrides:
-#   TF_VAR_app_name        = alex
-#   TF_VAR_db_tier         = db-f1-micro
-#   TF_VAR_db_disk_size_gb = 10
-# Repository Secret: GCP_SA_KEY = full JSON from terraform output github_actions_sa_key_base64 (decoded) or gcloud key create
-# After apply, optionally copy terraform outputs into Variables: artifact_registry_url, gcs_vectors_bucket, etc.
+# =============================================================================
+# ENVIRONMENT A — THIS FILE (terraform/gcp/terraform.tfvars)
+# You edit these values for: terraform init / plan / apply in terraform/gcp only.
+# =============================================================================
+#   project_id, region, app_name, optional db_* — no GitHub or Cloud Run UI.
+
+# =============================================================================
+# ENVIRONMENT B — GitHub repository (Settings → Secrets and variables → Actions)
+# CI/CD and Docker workflow read these — NOT from terraform.tfvars.
+# =============================================================================
+#   Terraform workflow inputs (Variable or Secret; first match wins):
+#     TF_VAR_project_id, GCP_PROJECT_ID, PROJECT_ID, GOOGLE_CLOUD_PROJECT, GCLOUD_PROJECT
+#     TF_VAR_region, TF_VAR_REGION, GCP_REGION, GOOGLE_CLOUD_REGION, DEFAULT_REGION, GCLOUD_REGION
+#     GCP_SA_KEY, GOOGLE_CREDENTIALS, GCP_CREDENTIALS, GOOGLE_APPLICATION_CREDENTIALS_JSON (SA JSON)
+#
+#   .github/workflows/docker-gcp.yml (build images, deploy researcher, sync frontend to GCS):
+#     ARTIFACT_REGISTRY_URL     ← terraform output artifact_registry_url
+#     GCS_FRONTEND_BUCKET       ← terraform output frontend_bucket_name
+#     NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY (Secret) — frontend static build
+#     NEXT_PUBLIC_API_URL (Variable/Secret) — baked into the static export at build time
+#     CLOUD_RUN_RESEARCHER_SERVICE — optional; default alex-researcher
+#   CI sets NEXT_PUBLIC_ASSET_PREFIX from the bucket (see frontend/next.config.ts).
+
+# =============================================================================
+# ENVIRONMENT C — Cloud Run service: portfolio API (backend/api)  ← dashboard /api/*
+# Set in Cloud Run console or gcloud run services update — NOT in terraform.tfvars.
+# =============================================================================
+#   DATABASE_URL, CLERK_JWKS_URL, CLERK_ISSUER, GCP_PROJECT_ID / Vertex env as needed
+#   CORS_ORIGINS / CORS_ORIGIN_REGEX — optional; defaults cover GCS static origins
+#   NEXT_PUBLIC_* does not apply here (that is only for the browser build in ENV B).
+
+# =============================================================================
+# ENVIRONMENT D — Cloud Run service: researcher (backend/researcher)
+# =============================================================================
+#   Vertex/Bedrock model env, CORS if you call it from the GCS-hosted site
+
+# =============================================================================
+# Cross-reference (after terraform apply)
+# =============================================================================
+#   Copy outputs into GitHub Variables where noted above. Re-apply terraform after pulling
+#   if the module adds buckets or IAM for the GitHub Actions SA.
+# Optional TF overrides: TF_VAR_app_name, TF_VAR_db_tier, TF_VAR_db_disk_size_gb

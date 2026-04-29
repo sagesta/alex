@@ -3,7 +3,8 @@
 #
 # Prereqs: terraform apply in terraform/gcp; GitHub secrets/vars (see terraform.tfvars.example).
 # Clerk: set repository secret NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY (and any other NEXT_PUBLIC_* your app needs).
-# Portfolio API: set Variable/Secret NEXT_PUBLIC_API_URL to backend/api Cloud Run URL (routes /api/user), not researcher only.
+# Portfolio API: set GitHub Variable NEXT_PUBLIC_API_URL to the Cloud Run URL of **backend/api** (deploy separately with
+# `docker build -f backend/api/Dockerfile .` + gcloud run deploy). Do not use the researcher URL — it has no /api/user.
 
 name: Docker GCP
 
@@ -14,6 +15,7 @@ on:
       - main
     paths:
       - "backend/researcher/**"
+      - "backend/api/**"
       - "frontend/**"
       - ".github/workflows/docker-gcp.yml"
 
@@ -207,5 +209,6 @@ jobs:
               echo "| **Frontend (GCS)** | *(build/upload failed — see deploy-frontend job; needs Clerk \`NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY\`)* |"
             fi
             echo ""
-            echo "Open this summary from the workflow run’s **Summary** tab for your presentation."
+            echo ""
+            echo "**Portfolio API (dashboard / Clerk):** \`NEXT_PUBLIC_API_URL\` must be the Cloud Run service that runs \`backend/api\` (routes like \`/api/user\`), **not** the researcher URL."
           } >> "$GITHUB_STEP_SUMMARY"

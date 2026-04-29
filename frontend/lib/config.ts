@@ -1,6 +1,7 @@
-// API base URL for the FastAPI backend.
-// - Set NEXT_PUBLIC_API_URL at build time when the static site is on GCS and the API is elsewhere (e.g. Cloud Run).
-// - Without it, non-localhost production used to use "" (relative /api/...), which hits storage.googleapis.com, not your API.
+// API base URL for the portfolio FastAPI app (backend/api): /api/user, /api/accounts, /api/jobs, etc.
+// - Set NEXT_PUBLIC_API_URL at build time when the static site is on GCS (e.g. your Cloud Run URL for **api**, not alex-researcher).
+// - The researcher service only exposes /research and /health — it does not implement /api/user.
+// - Without NEXT_PUBLIC_API_URL, production used "" (relative /api/...), which hits the GCS host, not your API.
 
 function trimBase(url: string): string {
   return url.replace(/\/$/, "");

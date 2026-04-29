@@ -16,4 +16,5 @@ dependencies = [
 ]
 
 [tool.uv.sources]
-alex-database = { workspace = true }
+# Path matches researcher/docker layout; `uv sync` from backend/ still works via workspace.
+alex-database = { path = "../database", editable = true }

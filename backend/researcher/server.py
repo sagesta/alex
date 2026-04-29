@@ -32,9 +32,10 @@ _cors_origins = [
     for o in os.getenv("CORS_ORIGINS", "http://localhost:3000").split(",")
     if o.strip()
 ]
+# Include path-style GCS Origin (https://storage.googleapis.com) or preflight fails with 400.
 _cors_origin_regex = os.getenv(
     "CORS_ORIGIN_REGEX",
-    r"https://[a-z0-9][-a-z0-9_.]*\.storage\.googleapis\.com",
+    r"https://(storage\.googleapis\.com|[a-z0-9][-a-z0-9_.]*\.storage\.googleapis\.com)",
 )
 app.add_middleware(
     CORSMiddleware,
