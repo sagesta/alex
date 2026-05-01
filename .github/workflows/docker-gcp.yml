@@ -3,8 +3,8 @@
 #
 # Prereqs: terraform apply in terraform/gcp; GitHub secrets/vars (see terraform.tfvars.example).
 # Clerk: set repository secret NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY (and any other NEXT_PUBLIC_* your app needs).
-# Portfolio API: set GitHub Variable NEXT_PUBLIC_API_URL to the Cloud Run URL of **backend/api** (deploy separately with
-# `docker build -f backend/api/Dockerfile .` + gcloud run deploy). Do not use the researcher URL — it has no /api/user.
+# Portfolio API: the frontend proxies /api/* to backend/api through BACKEND_URL at Cloud Run runtime.
+# Override BACKEND_URL only if you need to; otherwise the workflow uses the freshly deployed alex-api URL.
 # Re-run without a code change: GitHub → Actions → Docker GCP → Run workflow (workflow_dispatch).
 
 name: Docker GCP
@@ -75,18 +75,11 @@ jobs:
         env:
           IMAGE_BASE: ${{ env.ARTIFACT_REGISTRY_URL }}/${{ matrix.service }}
           NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${{ secrets.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY }}
-          NEXT_PUBLIC_API_URL: ${{ vars.NEXT_PUBLIC_API_URL || secrets.NEXT_PUBLIC_API_URL }}
         run: |
           BUILD_ARGS=()
           if [ "${{ matrix.service }}" = "frontend" ]; then
             test -n "$NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY" || { echo "::error::Missing NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY secret for frontend build"; exit 1; }
-            test -n "$NEXT_PUBLIC_API_URL" || { echo "::error::Missing NEXT_PUBLIC_API_URL (Variable or Secret) for frontend build-time API base URL"; exit 1; }
-            if echo "$NEXT_PUBLIC_API_URL" | grep -qi "researcher"; then
-              echo "::error::NEXT_PUBLIC_API_URL points to researcher. Use the portfolio API Cloud Run URL (alex-api), not alex-researcher."
-              exit 1
-            fi
             BUILD_ARGS+=(--build-arg "NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=$NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY")
-            BUILD_ARGS+=(--build-arg "NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL")
           fi
           docker build --platform linux/amd64 \
             "${BUILD_ARGS[@]}" \
@@ -253,15 +246,13 @@ jobs:
         env:
           IMAGE: ${{ env.ARTIFACT_REGISTRY_URL }}/frontend:${{ needs.build-push.outputs.image_tag }}
           NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${{ secrets.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY }}
-          NEXT_PUBLIC_API_URL: ${{ vars.NEXT_PUBLIC_API_URL || secrets.NEXT_PUBLIC_API_URL || needs.deploy-api.outputs.service_url }}
+          BACKEND_URL: ${{ vars.BACKEND_URL || secrets.BACKEND_URL || needs.deploy-api.outputs.service_url }}
         run: |
-          # Resolve API URL: explicit variable wins; fall back to freshly deployed api service URL
-          RESOLVED_API_URL="${NEXT_PUBLIC_API_URL}"
-          if [ -z "$RESOLVED_API_URL" ] || [ "$RESOLVED_API_URL" = "null" ]; then
-            echo "::warning::NEXT_PUBLIC_API_URL not set; frontend will use same-origin /api/* (works with a load balancer, not direct Cloud Run)."
-          fi
-          if echo "$RESOLVED_API_URL" | grep -qi "researcher"; then
-            echo "::error::NEXT_PUBLIC_API_URL points to researcher. Use portfolio API Cloud Run URL (alex-api)."
+          # Resolve backend URL: explicit variable wins; fall back to freshly deployed api service URL.
+          RESOLVED_BACKEND_URL="${BACKEND_URL}"
+          test -n "$RESOLVED_BACKEND_URL" && test "$RESOLVED_BACKEND_URL" != "null" || { echo "::error::Could not resolve BACKEND_URL for frontend /api proxy"; exit 1; }
+          if echo "$RESOLVED_BACKEND_URL" | grep -qi "researcher"; then
+            echo "::error::BACKEND_URL points to researcher. Use portfolio API Cloud Run URL (alex-api)."
             exit 1
           fi
 
@@ -271,10 +262,8 @@ jobs:
           p = Path("/tmp/alex-frontend-env.yaml")
           env = {
               "NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY": os.environ.get("NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY", ""),
+              "BACKEND_URL": os.environ.get("BACKEND_URL", ""),
           }
-          api_url = os.environ.get("NEXT_PUBLIC_API_URL", "").strip()
-          if api_url and api_url != "null":
-              env["NEXT_PUBLIC_API_URL"] = api_url
           lines = [f"{k}: {json.dumps(v)}" for k, v in env.items() if v]
           p.write_text("\n".join(lines) + "\n", encoding="utf-8")
           PY
@@ -329,5 +318,5 @@ jobs:
               echo "| **Researcher (Cloud Run)** | *(deploy failed — check job logs)* |"
             fi
             echo ""
-            echo "**Backend wiring:** \`NEXT_PUBLIC_API_URL\` on the frontend Cloud Run service must point at \`alex-api\` (not researcher). Set as GitHub Variable/Secret or it auto-resolves from \`deploy-api\`."
+            echo "**Backend wiring:** frontend \`/api/*\` requests proxy through the Next.js service to \`BACKEND_URL\`, which must point at \`alex-api\` (not researcher). It auto-resolves from \`deploy-api\` unless you override it."
           } >> "$GITHUB_STEP_SUMMARY"

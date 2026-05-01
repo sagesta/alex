@@ -1,7 +1,7 @@
-// API base URL for the portfolio FastAPI app (backend/api): /api/user, /api/accounts, /api/jobs, etc.
-// Cloud Run mode: set NEXT_PUBLIC_API_URL as a Cloud Run env var on the frontend service at deploy time.
-// - Leave empty to use same-origin relative /api/... (works when LB proxies /api/* to backend/api Cloud Run).
-// - Set to e.g. https://alex-api-….run.app to call backend/api directly (CORS must allow frontend origin).
+// API base URL for browser calls.
+// Default to same-origin /api/... so the Next.js server can proxy requests to
+// backend/api using its runtime BACKEND_URL env var. This avoids baking a stale
+// API URL into the browser bundle and avoids cross-origin CORS failures.
 
 function trimBase(url: string): string {
   return url.replace(/\/$/, "");
@@ -16,10 +16,8 @@ export const getApiUrl = (): string => {
     return trimBase(fromEnv);
   }
 
-  // Default to relative path (same-origin).
-  // - In production: works when a Load Balancer proxies /api/* to the portfolio API.
-  // - In local dev (Docker): works via Next.js rewrites configured in next.config.ts using BACKEND_URL.
+  // Default to same-origin. In Cloud Run this is handled by pages/api/[...path].ts.
   return "";
 };
 
-/** Call at request time so env is always fresh (important for Cloud Run runtime env). */
+/** Call at request time so local/dev env overrides are picked up consistently. */
