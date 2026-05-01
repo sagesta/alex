@@ -11,7 +11,7 @@ from datetime import datetime
 from decimal import Decimal
 import uuid
 
-from fastapi import FastAPI, HTTPException, Depends, status, Request
+from fastapi import FastAPI, HTTPException, Depends, status, Request, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, ValidationError
@@ -146,6 +146,7 @@ async def general_exception_handler(request: Request, exc: Exception):
 def ensure_database_schema(database: Database) -> None:
     """Create the core portfolio tables when deploying to a fresh database."""
     statements = [
+        'CREATE EXTENSION IF NOT EXISTS "uuid-ossp"',
         """CREATE TABLE IF NOT EXISTS users (
             clerk_user_id VARCHAR(255) PRIMARY KEY,
             display_name VARCHAR(255),
@@ -168,7 +169,7 @@ def ensure_database_schema(database: Database) -> None:
             updated_at TIMESTAMP DEFAULT NOW()
         )""",
         """CREATE TABLE IF NOT EXISTS accounts (
-            id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
             clerk_user_id VARCHAR(255) REFERENCES users(clerk_user_id) ON DELETE CASCADE,
             account_name VARCHAR(255) NOT NULL,
             account_purpose TEXT,
@@ -178,7 +179,7 @@ def ensure_database_schema(database: Database) -> None:
             updated_at TIMESTAMP DEFAULT NOW()
         )""",
         """CREATE TABLE IF NOT EXISTS positions (
-            id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
             account_id UUID REFERENCES accounts(id) ON DELETE CASCADE,
             symbol VARCHAR(20) REFERENCES instruments(symbol),
             quantity DECIMAL(20,8) NOT NULL,
@@ -188,7 +189,7 @@ def ensure_database_schema(database: Database) -> None:
             UNIQUE(account_id, symbol)
         )""",
         """CREATE TABLE IF NOT EXISTS jobs (
-            id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
             clerk_user_id VARCHAR(255) REFERENCES users(clerk_user_id) ON DELETE CASCADE,
             job_type VARCHAR(50) NOT NULL,
             status VARCHAR(20) DEFAULT 'pending',
@@ -240,6 +241,12 @@ if PUBSUB_ANALYSIS_TOPIC:
     except Exception as e:
         logger.warning(f"Pub/Sub client creation failed: {e}")
 
+INLINE_ANALYSIS_FALLBACK = os.getenv("INLINE_ANALYSIS_FALLBACK", "true").lower() in {
+    "1",
+    "true",
+    "yes",
+}
+
 
 def _publish_analysis_message(message: Dict[str, Any]) -> str:
     """
@@ -267,6 +274,223 @@ def _publish_analysis_message(message: Dict[str, Any]) -> str:
         f"Running in local mock mode — job {message.get('job_id')} will not be processed by agents."
     )
     return "local"
+
+
+def _as_float(value: Any) -> float:
+    if value is None:
+        return 0.0
+    if isinstance(value, Decimal):
+        return float(value)
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _format_money(value: float) -> str:
+    return f"${value:,.2f}"
+
+
+def _load_portfolio_snapshot(clerk_user_id: str) -> Dict[str, Any]:
+    accounts = db.accounts.find_by_user(clerk_user_id)
+    account_details = []
+    total_value = 0.0
+    total_cash = 0.0
+    asset_totals: Dict[str, float] = {}
+    region_totals: Dict[str, float] = {}
+    position_rows = []
+
+    for account in accounts:
+        cash_balance = _as_float(account.get("cash_balance"))
+        total_cash += cash_balance
+        total_value += cash_balance
+        account_total = cash_balance
+        positions = db.positions.find_by_account(account["id"])
+
+        for position in positions:
+            price = _as_float(position.get("current_price"))
+            quantity = _as_float(position.get("quantity"))
+            position_value = price * quantity
+            account_total += position_value
+            total_value += position_value
+
+            instrument = db.instruments.find_by_symbol(position["symbol"]) or {}
+            for asset_class, percent in (instrument.get("allocation_asset_class") or {}).items():
+                asset_totals[asset_class] = asset_totals.get(asset_class, 0.0) + (
+                    position_value * _as_float(percent) / 100
+                )
+            for region, percent in (instrument.get("allocation_regions") or {}).items():
+                region_totals[region] = region_totals.get(region, 0.0) + (
+                    position_value * _as_float(percent) / 100
+                )
+
+            position_rows.append(
+                {
+                    "symbol": position["symbol"],
+                    "name": instrument.get("name") or position.get("instrument_name") or position["symbol"],
+                    "quantity": quantity,
+                    "price": price,
+                    "value": position_value,
+                    "account_name": account.get("account_name"),
+                }
+            )
+
+        account_details.append(
+            {
+                "id": account["id"],
+                "name": account.get("account_name"),
+                "cash": cash_balance,
+                "positions": positions,
+                "total": account_total,
+            }
+        )
+
+    if total_cash:
+        asset_totals["cash"] = asset_totals.get("cash", 0.0) + total_cash
+
+    return {
+        "accounts": account_details,
+        "positions": position_rows,
+        "total_value": total_value,
+        "total_cash": total_cash,
+        "asset_totals": asset_totals,
+        "region_totals": region_totals,
+    }
+
+
+def _chart_data(values: Dict[str, float]) -> List[Dict[str, Any]]:
+    return [
+        {
+            "name": key.replace("_", " ").title(),
+            "value": round(value, 2),
+        }
+        for key, value in sorted(values.items(), key=lambda item: item[1], reverse=True)
+        if value > 0
+    ]
+
+
+def _build_inline_analysis(job_id: str, clerk_user_id: str) -> None:
+    """
+    GCP demo fallback for deployments without a separate planner worker.
+    It creates deterministic report/chart/retirement payloads and marks the job complete.
+    """
+    try:
+        job = db.jobs.find_by_id(job_id)
+        if not job or job.get("status") == "completed":
+            return
+
+        db.jobs.update_status(job_id, "running")
+        snapshot = _load_portfolio_snapshot(clerk_user_id)
+        user = db.users.find_by_clerk_id(clerk_user_id) or {}
+        total_value = snapshot["total_value"]
+        account_count = len(snapshot["accounts"])
+        position_count = len(snapshot["positions"])
+        target_income = _as_float(user.get("target_retirement_income"))
+        years_until_retirement = int(_as_float(user.get("years_until_retirement")))
+        annual_4_percent_income = total_value * 0.04
+
+        largest_positions = sorted(
+            snapshot["positions"], key=lambda row: row["value"], reverse=True
+        )[:5]
+        top_positions_markdown = "\n".join(
+            f"- **{row['symbol']}** ({row['name']}): {_format_money(row['value'])}"
+            for row in largest_positions
+        ) or "- No invested positions yet."
+
+        asset_mix = snapshot["asset_totals"]
+        asset_mix_markdown = "\n".join(
+            f"- **{key.replace('_', ' ').title()}**: {_format_money(value)}"
+            for key, value in sorted(asset_mix.items(), key=lambda item: item[1], reverse=True)
+        ) or "- No asset allocation available yet."
+
+        report = f"""# Portfolio Analysis
+
+Your portfolio currently has **{account_count} account(s)**, **{position_count} position(s)**, and a total estimated value of **{_format_money(total_value)}**.
+
+## Key Observations
+
+- Cash balance: **{_format_money(snapshot['total_cash'])}**
+- Estimated invested value: **{_format_money(max(total_value - snapshot['total_cash'], 0))}**
+- Largest holdings:
+{top_positions_markdown}
+
+## Asset Mix
+
+{asset_mix_markdown}
+
+## Recommendations
+
+- Keep adding account and position data so the advisor can produce richer analysis.
+- Compare your current allocation with your stated target allocation before making changes.
+- Treat this as educational analysis only; consult a licensed financial professional before making investment decisions.
+"""
+
+        charts_payload = {
+            "asset_allocation": {
+                "type": "donut",
+                "title": "Asset Allocation",
+                "data": _chart_data(snapshot["asset_totals"]),
+            },
+            "regional_allocation": {
+                "type": "pie",
+                "title": "Regional Allocation",
+                "data": _chart_data(snapshot["region_totals"]),
+            },
+            "largest_positions": {
+                "type": "bar",
+                "title": "Largest Positions",
+                "data": [
+                    {"name": row["symbol"], "value": round(row["value"], 2)}
+                    for row in largest_positions
+                ],
+            },
+        }
+
+        retirement_gap = max(target_income - annual_4_percent_income, 0)
+        retirement_analysis = f"""## Retirement Projection
+
+At the common 4% withdrawal guideline, this portfolio could support about **{_format_money(annual_4_percent_income)}** of annual income.
+
+Your stated target retirement income is **{_format_money(target_income)}**. The current estimated annual income gap is **{_format_money(retirement_gap)}**.
+
+Years until retirement: **{years_until_retirement}**.
+
+This is a simple projection based on current portfolio value. It does not model future contributions, inflation, taxes, or market volatility.
+"""
+
+        db.jobs.update_report(
+            job_id,
+            {
+                "agent": "Portfolio Analyst",
+                "content": report,
+                "generated_at": datetime.utcnow().isoformat(),
+            },
+        )
+        db.jobs.update_charts(job_id, charts_payload)
+        db.jobs.update_retirement(
+            job_id,
+            {
+                "agent": "Retirement Planner",
+                "analysis": retirement_analysis,
+                "generated_at": datetime.utcnow().isoformat(),
+            },
+        )
+        db.jobs.update_summary(
+            job_id,
+            {
+                "agent": "Financial Planner",
+                "mode": "inline_gcp_fallback",
+                "generated_at": datetime.utcnow().isoformat(),
+            },
+        )
+        db.jobs.update_status(job_id, "completed")
+        logger.info(f"Inline analysis completed for job {job_id}")
+    except Exception as e:
+        logger.error(f"Inline analysis failed for job {job_id}: {e}", exc_info=True)
+        try:
+            db.jobs.update_status(job_id, "failed", error_message=str(e))
+        except Exception:
+            logger.exception("Failed to persist inline analysis failure")
 
 # Clerk authentication setup (exactly like saas reference)
 clerk_config = ClerkConfig(jwks_url=os.getenv("CLERK_JWKS_URL"), leeway=60)
@@ -660,7 +884,11 @@ async def list_instruments(clerk_user_id: str = Depends(get_current_user_id)):
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/api/analyze", response_model=AnalyzeResponse)
-async def trigger_analysis(request: AnalyzeRequest, clerk_user_id: str = Depends(get_current_user_id)):
+async def trigger_analysis(
+    request: AnalyzeRequest,
+    background_tasks: BackgroundTasks,
+    clerk_user_id: str = Depends(get_current_user_id),
+):
     """Trigger portfolio analysis"""
 
     try:
@@ -689,6 +917,10 @@ async def trigger_analysis(request: AnalyzeRequest, clerk_user_id: str = Depends
         backend = _publish_analysis_message(message)
         logger.info(f"Queued analysis job {job_id} via {backend}")
 
+        if INLINE_ANALYSIS_FALLBACK:
+            background_tasks.add_task(_build_inline_analysis, str(job_id), clerk_user_id)
+            logger.info(f"Scheduled inline analysis fallback for job {job_id}")
+
         return AnalyzeResponse(
             job_id=str(job_id),
             message="Analysis started. Check job status for results."
@@ -712,6 +944,10 @@ async def get_job_status(job_id: str, clerk_user_id: str = Depends(get_current_u
         if job.get('clerk_user_id') != clerk_user_id:
             raise HTTPException(status_code=403, detail="Not authorized")
 
+        if INLINE_ANALYSIS_FALLBACK and job.get("status") in {"pending", "running"}:
+            _build_inline_analysis(job_id, clerk_user_id)
+            job = db.jobs.find_by_id(job_id)
+
         return job
 
     except HTTPException:
@@ -727,6 +963,11 @@ async def list_jobs(clerk_user_id: str = Depends(get_current_user_id)):
     try:
         # Get jobs for this user (with higher limit to avoid missing recent jobs)
         user_jobs = db.jobs.find_by_user(clerk_user_id, limit=100)
+        if INLINE_ANALYSIS_FALLBACK:
+            for job in user_jobs:
+                if job.get("status") in {"pending", "running"}:
+                    _build_inline_analysis(job["id"], clerk_user_id)
+            user_jobs = db.jobs.find_by_user(clerk_user_id, limit=100)
         # Sort by created_at descending (most recent first)
         user_jobs.sort(key=lambda x: x.get('created_at', ''), reverse=True)
         return {"jobs": user_jobs}
