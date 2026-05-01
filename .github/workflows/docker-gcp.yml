@@ -170,8 +170,9 @@ jobs:
         run: |
           test -n "$CLERK_JWKS_URL" || { echo "::error::Add repository secret CLERK_JWKS_URL (Clerk Dashboard → API Keys → JWT template / JWKS URL)"; exit 1; }
           test -n "$DATABASE_URL" || { echo "::error::Add secret API_DATABASE_URL or DATABASE_URL with postgresql://… for Cloud SQL (same URI as terraform Secret Manager alex-database-url if you copy it)"; exit 1; }
-          if [ -z "$CLOUD_SQL_CONNECTION_NAME" ]; then
-            echo "::warning::CLOUD_SQL_CONNECTION_NAME not set — /cloudsql/ socket will NOT be mounted. Set GitHub variable CLOUD_SQL_CONNECTION_NAME to project:region:instance (e.g. from terraform output cloud_sql_connection_name)."
+          if echo "$DATABASE_URL" | grep -q "host=/cloudsql/" && [ -z "$CLOUD_SQL_CONNECTION_NAME" ]; then
+            echo "::error::DATABASE_URL uses a /cloudsql/ socket, so CLOUD_SQL_CONNECTION_NAME is required. Set it from terraform output cloud_sql_connection_name."
+            exit 1
           fi
           python3 << 'PY'
           import json, os

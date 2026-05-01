@@ -143,8 +143,79 @@ async def general_exception_handler(request: Request, exc: Exception):
     )
 
 # Initialize services
+def ensure_database_schema(database: Database) -> None:
+    """Create the core portfolio tables when deploying to a fresh database."""
+    statements = [
+        """CREATE TABLE IF NOT EXISTS users (
+            clerk_user_id VARCHAR(255) PRIMARY KEY,
+            display_name VARCHAR(255),
+            years_until_retirement INTEGER,
+            target_retirement_income DECIMAL(12,2),
+            asset_class_targets JSONB DEFAULT '{"equity": 70, "fixed_income": 30}',
+            region_targets JSONB DEFAULT '{"north_america": 50, "international": 50}',
+            created_at TIMESTAMP DEFAULT NOW(),
+            updated_at TIMESTAMP DEFAULT NOW()
+        )""",
+        """CREATE TABLE IF NOT EXISTS instruments (
+            symbol VARCHAR(20) PRIMARY KEY,
+            name VARCHAR(255) NOT NULL,
+            instrument_type VARCHAR(50),
+            current_price DECIMAL(12,4),
+            allocation_regions JSONB DEFAULT '{}',
+            allocation_sectors JSONB DEFAULT '{}',
+            allocation_asset_class JSONB DEFAULT '{}',
+            created_at TIMESTAMP DEFAULT NOW(),
+            updated_at TIMESTAMP DEFAULT NOW()
+        )""",
+        """CREATE TABLE IF NOT EXISTS accounts (
+            id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            clerk_user_id VARCHAR(255) REFERENCES users(clerk_user_id) ON DELETE CASCADE,
+            account_name VARCHAR(255) NOT NULL,
+            account_purpose TEXT,
+            cash_balance DECIMAL(12,2) DEFAULT 0,
+            cash_interest DECIMAL(5,4) DEFAULT 0,
+            created_at TIMESTAMP DEFAULT NOW(),
+            updated_at TIMESTAMP DEFAULT NOW()
+        )""",
+        """CREATE TABLE IF NOT EXISTS positions (
+            id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            account_id UUID REFERENCES accounts(id) ON DELETE CASCADE,
+            symbol VARCHAR(20) REFERENCES instruments(symbol),
+            quantity DECIMAL(20,8) NOT NULL,
+            as_of_date DATE DEFAULT CURRENT_DATE,
+            created_at TIMESTAMP DEFAULT NOW(),
+            updated_at TIMESTAMP DEFAULT NOW(),
+            UNIQUE(account_id, symbol)
+        )""",
+        """CREATE TABLE IF NOT EXISTS jobs (
+            id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            clerk_user_id VARCHAR(255) REFERENCES users(clerk_user_id) ON DELETE CASCADE,
+            job_type VARCHAR(50) NOT NULL,
+            status VARCHAR(20) DEFAULT 'pending',
+            request_payload JSONB,
+            report_payload JSONB,
+            charts_payload JSONB,
+            retirement_payload JSONB,
+            summary_payload JSONB,
+            error_message TEXT,
+            created_at TIMESTAMP DEFAULT NOW(),
+            started_at TIMESTAMP,
+            completed_at TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT NOW()
+        )""",
+        "CREATE INDEX IF NOT EXISTS idx_accounts_user ON accounts(clerk_user_id)",
+        "CREATE INDEX IF NOT EXISTS idx_positions_account ON positions(account_id)",
+        "CREATE INDEX IF NOT EXISTS idx_positions_symbol ON positions(symbol)",
+        "CREATE INDEX IF NOT EXISTS idx_jobs_user ON jobs(clerk_user_id)",
+        "CREATE INDEX IF NOT EXISTS idx_jobs_status ON jobs(status)",
+    ]
+
+    for statement in statements:
+        database.execute_raw(statement)
+
 try:
     db = Database()
+    ensure_database_schema(db)
     logger.info("Database initialized successfully")
 except Exception as e:
     logger.error(f"Database initialization failed: {e}")
@@ -708,6 +779,86 @@ async def populate_test_data(clerk_user_id: str = Depends(get_current_user_id)):
 
         # Define missing instruments that might not be in the database
         missing_instruments = {
+            "SPY": {
+                "name": "SPDR S&P 500 ETF Trust",
+                "type": "etf",
+                "current_price": 520.00,
+                "allocation_regions": {"north_america": 100},
+                "allocation_sectors": {"technology": 30, "financials": 15, "healthcare": 15, "consumer_discretionary": 15, "other": 25},
+                "allocation_asset_class": {"equity": 100}
+            },
+            "VTI": {
+                "name": "Vanguard Total Stock Market ETF",
+                "type": "etf",
+                "current_price": 260.00,
+                "allocation_regions": {"north_america": 100},
+                "allocation_sectors": {"technology": 28, "financials": 13, "healthcare": 13, "consumer_discretionary": 12, "other": 34},
+                "allocation_asset_class": {"equity": 100}
+            },
+            "BND": {
+                "name": "Vanguard Total Bond Market ETF",
+                "type": "etf",
+                "current_price": 72.00,
+                "allocation_regions": {"north_america": 100},
+                "allocation_sectors": {"other": 100},
+                "allocation_asset_class": {"fixed_income": 100}
+            },
+            "QQQ": {
+                "name": "Invesco QQQ Trust",
+                "type": "etf",
+                "current_price": 440.00,
+                "allocation_regions": {"north_america": 100},
+                "allocation_sectors": {"technology": 55, "consumer_discretionary": 20, "healthcare": 8, "other": 17},
+                "allocation_asset_class": {"equity": 100}
+            },
+            "IWM": {
+                "name": "iShares Russell 2000 ETF",
+                "type": "etf",
+                "current_price": 205.00,
+                "allocation_regions": {"north_america": 100},
+                "allocation_sectors": {"financials": 18, "healthcare": 16, "technology": 14, "consumer_discretionary": 12, "other": 40},
+                "allocation_asset_class": {"equity": 100}
+            },
+            "VXUS": {
+                "name": "Vanguard Total International Stock ETF",
+                "type": "etf",
+                "current_price": 60.00,
+                "allocation_regions": {"international": 100},
+                "allocation_sectors": {"financials": 20, "technology": 12, "healthcare": 10, "consumer_discretionary": 10, "other": 48},
+                "allocation_asset_class": {"equity": 100}
+            },
+            "VNQ": {
+                "name": "Vanguard Real Estate ETF",
+                "type": "etf",
+                "current_price": 85.00,
+                "allocation_regions": {"north_america": 100},
+                "allocation_sectors": {"real_estate": 100},
+                "allocation_asset_class": {"alternatives": 100}
+            },
+            "GLD": {
+                "name": "SPDR Gold Shares",
+                "type": "etf",
+                "current_price": 215.00,
+                "allocation_regions": {"north_america": 100},
+                "allocation_sectors": {"other": 100},
+                "allocation_asset_class": {"alternatives": 100}
+            },
+            "TLT": {
+                "name": "iShares 20+ Year Treasury Bond ETF",
+                "type": "etf",
+                "current_price": 90.00,
+                "allocation_regions": {"north_america": 100},
+                "allocation_sectors": {"other": 100},
+                "allocation_asset_class": {"fixed_income": 100}
+            },
+            "VIG": {
+                "name": "Vanguard Dividend Appreciation ETF",
+                "type": "etf",
+                "current_price": 180.00,
+                "allocation_regions": {"north_america": 100},
+                "allocation_sectors": {"technology": 22, "financials": 16, "healthcare": 14, "consumer_discretionary": 10, "other": 38},
+                "allocation_asset_class": {"equity": 100}
+            },
             "AAPL": {
                 "name": "Apple Inc.",
                 "type": "stock",

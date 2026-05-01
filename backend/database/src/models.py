@@ -100,10 +100,12 @@ class Instruments(BaseModel):
             'symbol': validated['symbol'],
             'name': validated['name'],
             'instrument_type': validated['instrument_type'],
+            'current_price': validated.get('current_price'),
             'allocation_regions': validated['allocation_regions'],
             'allocation_sectors': validated['allocation_sectors'],
             'allocation_asset_class': validated['allocation_asset_class']
         }
+        data = {key: value for key, value in data.items() if value is not None}
         
         return self.db.insert(self.table_name, data, returning='symbol')
     

@@ -28,6 +28,26 @@ resource "google_sql_database_instance" "alex" {
   depends_on = [google_project_service.apis]
 }
 
+data "google_project" "current" {
+  project_id = var.project_id
+}
+
+locals {
+  default_compute_service_account = "${data.google_project.current.number}-compute@developer.gserviceaccount.com"
+}
+
+resource "google_project_iam_member" "default_compute_cloudsql_client" {
+  project = var.project_id
+  role    = "roles/cloudsql.client"
+  member  = "serviceAccount:${local.default_compute_service_account}"
+}
+
+resource "google_project_iam_member" "default_compute_pubsub_publisher" {
+  project = var.project_id
+  role    = "roles/pubsub.publisher"
+  member  = "serviceAccount:${local.default_compute_service_account}"
+}
+
 resource "google_sql_database" "alex" {
   name     = "alex"
   instance = google_sql_database_instance.alex.name
